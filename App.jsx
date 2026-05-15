@@ -1310,8 +1310,7 @@ DETALHAMENTO COMPLETO
     txt += `${dl(e.data_op)} | ${e.nome} | ${e.funcao || ''}${e.turnos ? ' '+e.turnos : ''} | ${s?.nome || ''} | ${fmt2(e.valor_final)} | ${e.forma_pagamento === 'pix' ? 'Pix' : 'Dinheiro'}`
     if (e.obs) txt += ` | ${e.obs}`
     if (e.editado) txt += ` | Editado`
-    txt += '
-'
+    txt += '\n'
   })
 
   // Download
