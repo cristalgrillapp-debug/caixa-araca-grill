@@ -6,10 +6,25 @@ const fmt = (cents) => new Intl.NumberFormat('pt-BR', { style: 'currency', curre
 const parseCents = (str) => parseInt(String(str).replace(/\D/g, '') || '0', 10)
 const DIAS = ['DOM', 'SEG', 'TER', 'QUA', 'QUI', 'SEX', 'SÁB']
 const toDateStr = (d) => d.toISOString().slice(0, 10)
-const todayOp = () => {
+
+// ── CONFIGURAÇÕES (salvas no navegador) ──
+const DEFAULT_CONFIG = {
+  nome_estabelecimento: 'ARACÁ GRILL',
+  whatsapp_pix: '5518996530959',
+  horario_virada_h: 2,
+  horario_virada_m: 30,
+}
+const getConfig = () => {
+  try { const s = localStorage.getItem('araca_config'); return s ? { ...DEFAULT_CONFIG, ...JSON.parse(s) } : { ...DEFAULT_CONFIG } } catch { return { ...DEFAULT_CONFIG } }
+}
+const saveConfig = (cfg) => { try { localStorage.setItem('araca_config', JSON.stringify(cfg)) } catch {} }
+
+const todayOp = (cfg) => {
   const now = new Date()
   const h = now.getHours(), m = now.getMinutes()
-  if (h < 2 || (h === 2 && m <= 30)) {
+  const vh = cfg?.horario_virada_h ?? 2
+  const vm = cfg?.horario_virada_m ?? 30
+  if (h < vh || (h === vh && m <= vm)) {
     const y = new Date(now); y.setDate(y.getDate() - 1); return toDateStr(y)
   }
   return toDateStr(now)
@@ -84,7 +99,14 @@ export default function App() {
   const [pessoas, setPessoas] = useState([])
   const [setores, setSetores] = useState([])
   const [modal, setModal] = useState(null)
-  const today = todayOp()
+  const [config, setConfig] = useState(getConfig)
+  const today = todayOp(config)
+
+  const updateConfig = (changes) => {
+    const novo = { ...config, ...changes }
+    setConfig(novo)
+    saveConfig(novo)
+  }
 
   useEffect(() => {
     const unsubs = [
@@ -109,8 +131,10 @@ export default function App() {
   const updatePessoa = async (id, data) => await updateDoc(doc(db, 'pessoas', id), data)
   const removePessoa = async (id) => await deleteDoc(doc(db, 'pessoas', id))
   const addSetor = async (data) => await addDoc(collection(db, 'setores'), data)
+  const updateSetor = async (id, data) => await updateDoc(doc(db, 'setores', id), data)
+  const removeSetor = async (id) => await deleteDoc(doc(db, 'setores', id))
 
-  const store = { extras, pessoas, setores, addExtra, updateExtra, removeExtra, addPessoa, updatePessoa, removePessoa, addSetor }
+  const store = { extras, pessoas, setores, config, updateConfig, addExtra, updateExtra, removeExtra, addPessoa, updatePessoa, removePessoa, addSetor, updateSetor, removeSetor }
   const tabs = [
     { id: 'extras', icon: '👤', label: 'Extras' },
     { id: 'pagamentos', icon: '💳', label: 'Pagamentos' },
@@ -125,7 +149,7 @@ export default function App() {
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <div>
             <div style={{ fontSize: 11, color: '#c9a96e', letterSpacing: '0.15em', textTransform: 'uppercase' }}>Sistema Operacional</div>
-            <div style={{ fontSize: 22, fontWeight: 700 }}>ARACÁ GRILL</div>
+            <div style={{ fontSize: 22, fontWeight: 700 }}>{config.nome_estabelecimento}</div>
           </div>
           <div style={{ textAlign: 'right' }}>
             <div style={{ fontSize: 11, color: '#c9a96e80' }}>Data operacional</div>
@@ -138,7 +162,7 @@ export default function App() {
         {tab === 'pagamentos' && <TabPagamentos store={store} today={today} setModal={setModal} />}
         {tab === 'lancamentos' && <TabLancamentos store={store} today={today} />}
         {tab === 'relatorios' && <TabRelatorios store={store} />}
-        {tab === 'config' && <TabConfig store={store} />}
+        {tab === 'config' && <TabConfig store={store} setModal={setModal} />}
       </div>
       <div style={S.nav}>
         {tabs.map(t => (
@@ -150,8 +174,10 @@ export default function App() {
         ))}
       </div>
       {modal?.type === 'addExtra' && <ModalAddExtra store={store} today={today} onClose={() => setModal(null)} />}
+      {modal?.type === 'editExtra' && <ModalEditExtra store={store} extra={modal.extra} onClose={() => setModal(null)} />}
       {modal?.type === 'pagar' && <ModalPagar store={store} extra={modal.extra} onClose={() => setModal(null)} />}
       {modal?.type === 'addPessoa' && <ModalAddPessoa store={store} onClose={() => setModal(null)} />}
+      {modal?.type === 'editPessoa' && <ModalEditPessoa store={store} pessoa={modal.pessoa} onClose={() => setModal(null)} />}
     </div>
   )
 }
@@ -164,6 +190,7 @@ function TabExtras({ store, today, setModal }) {
   const duplicar = async () => {
     const ontem = toDateStr(new Date(new Date(today + 'T12:00:00').getTime() - 86400000))
     const ontemExtras = extras.filter(e => e.data_op === ontem)
+    if (ontemExtras.length === 0) return alert('Nenhum extra ontem para duplicar.')
     for (const e of ontemExtras) {
       const p = pessoas.find(x => x.id === e.pessoa_id)
       const val = p ? (isWeekend(today) ? p.val_sex_dom : p.val_seg_qui) : e.valor_final
@@ -193,13 +220,19 @@ function TabExtras({ store, today, setModal }) {
                 <div style={{ fontWeight: 700, fontSize: 16 }}>{e.nome}</div>
                 <div style={{ fontSize: 13, color: '#8a7355' }}>{e.funcao}{setor ? ' · ' + setor.nome : ''}</div>
                 {e.turnos && <Badge>{e.turnos}</Badge>}
+                {e.obs ? <div style={{ fontSize: 12, color: '#aaa', marginTop: 2 }}>{e.obs}</div> : null}
               </div>
               <div style={{ textAlign: 'right' }}>
                 <div style={{ fontSize: 18, fontWeight: 700, color: '#c9a96e' }}>{fmt(e.valor_final)}</div>
                 {e.pago ? <Badge color="#22c55e">✓ Pago</Badge> : <Badge color="#f59e0b">Pendente</Badge>}
               </div>
             </div>
-            {!e.pago && <button onClick={() => removeExtra(e.id)} style={{ marginTop: 10, background: 'none', border: '1px solid #f0e8d8', borderRadius: 6, padding: '4px 10px', fontSize: 12, color: '#999', cursor: 'pointer' }}>Remover</button>}
+            {!e.pago && (
+              <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+                <button onClick={() => setModal({ type: 'editExtra', extra: e })} style={{ background: 'none', border: '1px solid #c9a96e', borderRadius: 6, padding: '4px 12px', fontSize: 12, color: '#c9a96e', cursor: 'pointer' }}>✏️ Editar</button>
+                <button onClick={() => { if(confirm('Remover ' + e.nome + '?')) removeExtra(e.id) }} style={{ background: 'none', border: '1px solid #f0e8d8', borderRadius: 6, padding: '4px 10px', fontSize: 12, color: '#ef4444', cursor: 'pointer' }}>Remover</button>
+              </div>
+            )}
           </div>
         )
       })}
@@ -243,6 +276,55 @@ function ModalAddExtra({ store, today, onClose }) {
           </select>
         </div>
         <div><label style={S.label}>Nome *</label><input value={nome} onChange={e => setNome(e.target.value)} style={S.input} placeholder="Nome completo" /></div>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <div style={{ flex: 1 }}><label style={S.label}>Função</label><input value={funcao} onChange={e => setFuncao(e.target.value)} style={S.input} /></div>
+          <div style={{ flex: 1 }}><label style={S.label}>Setor</label>
+            <select value={setorId} onChange={e => setSetorId(e.target.value)} style={S.input}>
+              <option value="">—</option>
+              {setores.filter(s => s.ativo).map(s => <option key={s.id} value={s.id}>{s.nome}</option>)}
+            </select>
+          </div>
+        </div>
+        <div><label style={S.label}>Turno</label>
+          <div style={{ display: 'flex', gap: 8 }}>
+            {['TD', 'TN', 'TD+TN', ''].map((t, i) => (
+              <button key={i} onClick={() => setTurnos(t)} style={{ flex: 1, padding: '8px 4px', border: `2px solid ${turnos === t ? '#c9a96e' : '#e0d5c5'}`, borderRadius: 8, background: turnos === t ? '#c9a96e22' : '#fff', cursor: 'pointer', fontSize: 12, fontWeight: turnos === t ? 700 : 400, color: turnos === t ? '#c9a96e' : '#666' }}>{t || '—'}</button>
+            ))}
+          </div>
+        </div>
+        <div><label style={S.label}>Valor</label>
+          <input value={valorDisplay} onChange={e => { const r = e.target.value.replace(/\D/g, ''); setValorDisplay(r ? fmt(parseInt(r)) : '') }} style={S.input} placeholder="R$ 0,00" inputMode="numeric" />
+        </div>
+        <div><label style={S.label}>Observação</label><input value={obs} onChange={e => setObs(e.target.value)} style={S.input} placeholder="Opcional..." /></div>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button onClick={onClose} style={S.btn('#999')}>Cancelar</button>
+          <button onClick={save} style={{ ...S.btn('#c9a96e'), flex: 2, fontWeight: 700 }}>Salvar</button>
+        </div>
+      </div>
+    </Modal>
+  )
+}
+
+function ModalEditExtra({ store, extra, onClose }) {
+  const { setores, updateExtra } = store
+  const [nome, setNome] = useState(extra.nome)
+  const [funcao, setFuncao] = useState(extra.funcao || '')
+  const [setorId, setSetorId] = useState(extra.setor_id || '')
+  const [turnos, setTurnos] = useState(extra.turnos || '')
+  const [valorDisplay, setValorDisplay] = useState(fmt(extra.valor_final))
+  const [obs, setObs] = useState(extra.obs || '')
+
+  const save = async () => {
+    if (!nome.trim()) return alert('Nome obrigatório')
+    const v = parseCents(valorDisplay)
+    await updateExtra(extra.id, { nome: nome.trim(), funcao, setor_id: setorId, turnos, valor_final: v, valor_original: v, obs })
+    onClose()
+  }
+
+  return (
+    <Modal title="Editar Extra" onClose={onClose}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+        <div><label style={S.label}>Nome *</label><input value={nome} onChange={e => setNome(e.target.value)} style={S.input} /></div>
         <div style={{ display: 'flex', gap: 8 }}>
           <div style={{ flex: 1 }}><label style={S.label}>Função</label><input value={funcao} onChange={e => setFuncao(e.target.value)} style={S.input} /></div>
           <div style={{ flex: 1 }}><label style={S.label}>Setor</label>
@@ -341,7 +423,7 @@ function TabPagamentos({ store, today, setModal }) {
 }
 
 function ModalPagar({ store, extra, onClose }) {
-  const { pessoas, updateExtra, updatePessoa } = store
+  const { pessoas, updateExtra, updatePessoa, config } = store
   const pessoa = pessoas.find(p => p.id === extra.pessoa_id)
   const [step, setStep] = useState('escolha')
   const [forma, setForma] = useState(extra.previsao === 'pix' ? 'pix' : 'dinheiro')
@@ -361,7 +443,10 @@ function ModalPagar({ store, extra, onClose }) {
     const diff = valorCents - extra.valor_final
     if (diff !== 0 && pessoa) await updatePessoa(pessoa.id, { ajuste_pendente: Math.max(0, ajuste + diff) })
     if (aplicarAjuste && pessoa && ajuste > 0) await updatePessoa(pessoa.id, { ajuste_pendente: Math.max(0, ajuste - Math.min(ajuste, extra.valor_final)) })
-    if (forma === 'pix') window.open(`https://wa.me/5518996530959?text=${encodeURIComponent(buildPixMsg())}`, '_blank')
+    if (forma === 'pix') {
+      const numero = config?.whatsapp_pix || DEFAULT_CONFIG.whatsapp_pix
+      window.open(`https://wa.me/${numero}?text=${encodeURIComponent(buildPixMsg())}`, '_blank')
+    }
     onClose()
   }
 
@@ -398,6 +483,7 @@ function ModalPagar({ store, extra, onClose }) {
           <div style={{ fontSize: 12, color: '#1e40af', fontWeight: 600, marginBottom: 4 }}>Dados do Pix</div>
           <div style={{ fontSize: 13 }}><strong>Tipo:</strong> {pessoa.tipo_pix}</div>
           <div style={{ fontSize: 13 }}><strong>Chave:</strong> {pessoa.chave_pix}</div>
+          <div style={{ fontSize: 11, color: '#64748b', marginTop: 4 }}>WhatsApp destino: {config?.whatsapp_pix}</div>
         </div>}
         <div><label style={S.label}>Assinatura</label>
           {assinatura
@@ -449,10 +535,10 @@ function TabLancamentos({ store, today }) {
 }
 
 function TabRelatorios({ store }) {
-  const { extras, pessoas, setores } = store
+  const { extras, pessoas, setores, config } = store
   const [filtro, setFiltro] = useState('hoje')
   const [subTab, setSubTab] = useState('resumo')
-  const today = todayOp()
+  const today = todayOp(config)
   const ontem = toDateStr(new Date(new Date(today + 'T12:00:00').getTime() - 86400000))
   const weekStart = toDateStr(new Date(new Date(today + 'T12:00:00').setDate(new Date(today + 'T12:00:00').getDate() - new Date(today + 'T12:00:00').getDay())))
   const monthStart = today.slice(0, 7) + '-01'
@@ -580,36 +666,160 @@ function ModalAddPessoa({ store, onClose }) {
   )
 }
 
-function TabConfig({ store }) {
-  const { setores, addSetor, pessoas, removePessoa } = store
-  const [novoSetor, setNovoSetor] = useState('')
+function ModalEditPessoa({ store, pessoa, onClose }) {
+  const { updatePessoa, setores } = store
+  const [nome, setNome] = useState(pessoa.nome)
+  const [funcao, setFuncao] = useState(pessoa.funcao || '')
+  const [tel, setTel] = useState(pessoa.telefone || '')
+  const [setorId, setSetorId] = useState(pessoa.setor_id || '')
+  const [valSQ, setValSQ] = useState(fmt(pessoa.val_seg_qui || 0))
+  const [valSD, setValSD] = useState(fmt(pessoa.val_sex_dom || 0))
+  const [tipoPix, setTipoPix] = useState(pessoa.tipo_pix || 'CPF')
+  const [chavePix, setChavePix] = useState(pessoa.chave_pix || '')
+
+  const save = async () => {
+    if (!nome.trim()) return alert('Nome obrigatório')
+    await updatePessoa(pessoa.id, { nome: nome.trim(), funcao, telefone: tel, setor_id: setorId, val_seg_qui: parseCents(valSQ), val_sex_dom: parseCents(valSD), tipo_pix: tipoPix, chave_pix: chavePix.trim() })
+    onClose()
+  }
+
   return (
-    <div>
-      <div style={S.card}>
-        <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 12 }}>📁 Setores</div>
-        {setores.map(s => <div key={s.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 0', borderBottom: '1px solid #f0e8d8' }}>
-          <span style={{ fontSize: 14 }}>{s.nome}</span>
-          <Badge color={s.ativo ? '#22c55e' : '#999'}>{s.ativo ? 'Ativo' : 'Inativo'}</Badge>
-        </div>)}
-        <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
-          <input value={novoSetor} onChange={e => setNovoSetor(e.target.value)} style={{ ...S.input, flex: 1 }} placeholder="Novo setor..." />
-          <button onClick={() => { if (novoSetor.trim()) { addSetor({ nome: novoSetor.trim(), ativo: true }); setNovoSetor('') } }} style={{ ...S.btn('#c9a96e'), flex: 'none' }}>+</button>
+    <Modal title="Editar Pessoa" onClose={onClose}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+        <div><label style={S.label}>Nome *</label><input value={nome} onChange={e => setNome(e.target.value)} style={S.input} /></div>
+        <div><label style={S.label}>Telefone WhatsApp</label><input value={tel} onChange={e => setTel(e.target.value)} style={S.input} placeholder="18999999999" inputMode="numeric" /></div>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <div style={{ flex: 1 }}><label style={S.label}>Função</label><input value={funcao} onChange={e => setFuncao(e.target.value)} style={S.input} /></div>
+          <div style={{ flex: 1 }}><label style={S.label}>Setor</label>
+            <select value={setorId} onChange={e => setSetorId(e.target.value)} style={S.input}>
+              <option value="">—</option>
+              {setores.filter(s => s.ativo).map(s => <option key={s.id} value={s.id}>{s.nome}</option>)}
+            </select>
+          </div>
+        </div>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <div style={{ flex: 1 }}><label style={S.label}>Seg-Qui</label><input value={valSQ} onChange={e => { const r = e.target.value.replace(/\D/g, ''); setValSQ(r ? fmt(parseInt(r)) : '') }} style={S.input} placeholder="R$ 0,00" inputMode="numeric" /></div>
+          <div style={{ flex: 1 }}><label style={S.label}>Sex-Dom</label><input value={valSD} onChange={e => { const r = e.target.value.replace(/\D/g, ''); setValSD(r ? fmt(parseInt(r)) : '') }} style={S.input} placeholder="R$ 0,00" inputMode="numeric" /></div>
+        </div>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <div style={{ flex: 1 }}><label style={S.label}>Tipo Pix</label>
+            <select value={tipoPix} onChange={e => setTipoPix(e.target.value)} style={S.input}>
+              {['CPF', 'Telefone', 'E-mail', 'Aleatória'].map(t => <option key={t}>{t}</option>)}
+            </select>
+          </div>
+          <div style={{ flex: 2 }}><label style={S.label}>Chave Pix</label><input value={chavePix} onChange={e => setChavePix(e.target.value)} style={S.input} /></div>
+        </div>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button onClick={onClose} style={S.btn('#999')}>Cancelar</button>
+          <button onClick={save} style={{ ...S.btn('#c9a96e'), flex: 2, fontWeight: 700 }}>Salvar</button>
         </div>
       </div>
+    </Modal>
+  )
+}
+
+function TabConfig({ store, setModal }) {
+  const { setores, addSetor, updateSetor, removeSetor, pessoas, removePessoa, config, updateConfig } = store
+  const [novoSetor, setNovoSetor] = useState('')
+  const [nomeEstab, setNomeEstab] = useState(config.nome_estabelecimento)
+  const [whatsapp, setWhatsapp] = useState(config.whatsapp_pix)
+  const [horaVirada, setHoraVirada] = useState(String(config.horario_virada_h).padStart(2, '0'))
+  const [minVirada, setMinVirada] = useState(String(config.horario_virada_m).padStart(2, '0'))
+  const [savedMsg, setSavedMsg] = useState('')
+
+  const salvarGeral = () => {
+    updateConfig({
+      nome_estabelecimento: nomeEstab.trim() || 'ARACÁ GRILL',
+      whatsapp_pix: whatsapp.replace(/\D/g, ''),
+      horario_virada_h: parseInt(horaVirada) || 2,
+      horario_virada_m: parseInt(minVirada) || 30,
+    })
+    setSavedMsg('✓ Salvo!')
+    setTimeout(() => setSavedMsg(''), 2500)
+  }
+
+  return (
+    <div>
+      {/* Estabelecimento */}
+      <div style={S.card}>
+        <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 14 }}>🏠 Estabelecimento</div>
+        <div style={{ marginBottom: 10 }}>
+          <label style={S.label}>Nome do estabelecimento</label>
+          <input value={nomeEstab} onChange={e => setNomeEstab(e.target.value)} style={S.input} placeholder="Ex: ARACÁ GRILL" />
+        </div>
+        <div style={{ marginBottom: 10 }}>
+          <label style={S.label}>WhatsApp para envio do Pix</label>
+          <input value={whatsapp} onChange={e => setWhatsapp(e.target.value)} style={S.input} placeholder="5518999999999" inputMode="numeric" />
+          <div style={{ fontSize: 11, color: '#999', marginTop: 4 }}>Com DDI+DDD, sem espaços. Ex: 5518996530959</div>
+        </div>
+        <div style={{ marginBottom: 14 }}>
+          <label style={S.label}>Horário de virada do dia operacional</label>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+            <input value={horaVirada} onChange={e => setHoraVirada(e.target.value)} style={{ ...S.input, width: 64, textAlign: 'center' }} placeholder="02" inputMode="numeric" maxLength={2} />
+            <span style={{ fontWeight: 700, color: '#8a7355' }}>:</span>
+            <input value={minVirada} onChange={e => setMinVirada(e.target.value)} style={{ ...S.input, width: 64, textAlign: 'center' }} placeholder="30" inputMode="numeric" maxLength={2} />
+            <span style={{ fontSize: 12, color: '#999' }}>horas</span>
+          </div>
+          <div style={{ fontSize: 11, color: '#999', marginTop: 4 }}>Antes desse horário o sistema usa a data do dia anterior.</div>
+        </div>
+        <button onClick={salvarGeral} style={{ ...S.btn(savedMsg ? '#22c55e' : '#c9a96e'), fontWeight: 700 }}>
+          {savedMsg || 'Salvar configurações'}
+        </button>
+      </div>
+
+      {/* Setores */}
+      <div style={S.card}>
+        <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 12 }}>📁 Setores</div>
+        {setores.map(s => (
+          <div key={s.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 0', borderBottom: '1px solid #f0e8d8' }}>
+            <span style={{ fontSize: 14 }}>{s.nome}</span>
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+              <button onClick={() => updateSetor(s.id, { ativo: !s.ativo })}
+                style={{ background: 'none', border: `1px solid ${s.ativo ? '#22c55e' : '#ccc'}`, borderRadius: 6, padding: '3px 10px', fontSize: 11, color: s.ativo ? '#22c55e' : '#999', cursor: 'pointer', fontWeight: 600 }}>
+                {s.ativo ? 'Ativo' : 'Inativo'}
+              </button>
+              <button onClick={() => { if (confirm('Remover setor ' + s.nome + '?')) removeSetor(s.id) }}
+                style={{ background: 'none', border: 'none', color: '#ef4444', fontSize: 16, cursor: 'pointer' }}>🗑</button>
+            </div>
+          </div>
+        ))}
+        <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
+          <input value={novoSetor} onChange={e => setNovoSetor(e.target.value)} style={{ ...S.input, flex: 1 }} placeholder="Novo setor..." />
+          <button onClick={() => { if (novoSetor.trim()) { addSetor({ nome: novoSetor.trim(), ativo: true }); setNovoSetor('') } }}
+            style={{ ...S.btn('#c9a96e'), flex: 'none', padding: '10px 18px' }}>+</button>
+        </div>
+      </div>
+
+      {/* Pessoas */}
       <div style={S.card}>
         <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 12 }}>👥 Pessoas ({pessoas.length})</div>
-        {pessoas.map(p => <div key={p.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 0', borderBottom: '1px solid #f0e8d8' }}>
-          <div>
-            <div style={{ fontWeight: 600, fontSize: 14 }}>{p.nome}</div>
-            <div style={{ fontSize: 12, color: '#8a7355' }}>{p.funcao} · {p.tipo_pix}: {p.chave_pix}</div>
-            {p.telefone && <div style={{ fontSize: 12, color: '#3b82f6' }}>📱 {p.telefone}</div>}
-            {p.ajuste_pendente > 0 && <div style={{ fontSize: 11, color: '#f59e0b' }}>⚠ Ajuste: {fmt(p.ajuste_pendente)}</div>}
+        {pessoas.length === 0 && <div style={{ fontSize: 13, color: '#999', textAlign: 'center', padding: 16 }}>Nenhuma pessoa cadastrada</div>}
+        {pessoas.map(p => (
+          <div key={p.id} style={{ padding: '10px 0', borderBottom: '1px solid #f0e8d8' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+              <div>
+                <div style={{ fontWeight: 600, fontSize: 14 }}>{p.nome}</div>
+                <div style={{ fontSize: 12, color: '#8a7355' }}>{p.funcao}</div>
+                <div style={{ fontSize: 12, color: '#8a7355' }}>Seg-Qui: {fmt(p.val_seg_qui)} · Sex-Dom: {fmt(p.val_sex_dom)}</div>
+                <div style={{ fontSize: 12, color: '#64748b' }}>{p.tipo_pix}: {p.chave_pix}</div>
+                {p.telefone ? <div style={{ fontSize: 12, color: '#3b82f6' }}>📱 {p.telefone}</div> : null}
+                {p.ajuste_pendente > 0 && <div style={{ fontSize: 11, color: '#f59e0b' }}>⚠ Ajuste: {fmt(p.ajuste_pendente)}</div>}
+              </div>
+              <div style={{ display: 'flex', gap: 6 }}>
+                <button onClick={() => setModal({ type: 'editPessoa', pessoa: p })}
+                  style={{ background: 'none', border: '1px solid #c9a96e', borderRadius: 6, padding: '4px 10px', fontSize: 12, color: '#c9a96e', cursor: 'pointer' }}>✏️</button>
+                <button onClick={() => { if (confirm('Remover ' + p.nome + '?')) removePessoa(p.id) }}
+                  style={{ background: 'none', border: 'none', color: '#ef4444', fontSize: 18, cursor: 'pointer' }}>🗑</button>
+              </div>
+            </div>
           </div>
-          <button onClick={() => { if (confirm('Remover ' + p.nome + '?')) removePessoa(p.id) }} style={{ background: 'none', border: 'none', color: '#ef4444', fontSize: 18, cursor: 'pointer' }}>🗑</button>
-        </div>)}
+        ))}
+        <button onClick={() => setModal({ type: 'addPessoa' })} style={{ ...S.btn('#6e7c8a'), marginTop: 12 }}>+ Nova Pessoa</button>
       </div>
+
+      {/* Rodapé */}
       <div style={{ ...S.card, background: '#fef3c7', border: '1px solid #f59e0b' }}>
-        <div style={{ fontSize: 12, color: '#92400e', fontWeight: 700 }}>ℹ️ ARACÁ GRILL v1.0</div>
+        <div style={{ fontSize: 12, color: '#92400e', fontWeight: 700 }}>ℹ️ {config.nome_estabelecimento} v1.1</div>
         <div style={{ fontSize: 12, color: '#92400e80' }}>Sistema operacional de extras · Firebase Firestore</div>
       </div>
     </div>
