@@ -42,6 +42,69 @@ const calcNotes = (cents) => {
 // trocos: [{ data, valor, descricao }]
 const totalTrocos = (trocos) => (trocos || []).reduce((a, t) => a + t.valor, 0)
 
+// ── Validações de chave Pix ──────────────────────────────────────────────────
+function validarCPF(cpf) {
+  const n = cpf.replace(/\D/g, '')
+  if (n.length !== 11 || /^(\d)\1{10}$/.test(n)) return false
+  let s = 0
+  for (let i = 0; i < 9; i++) s += parseInt(n[i]) * (10 - i)
+  let r = (s * 10) % 11; if (r === 10 || r === 11) r = 0
+  if (r !== parseInt(n[9])) return false
+  s = 0
+  for (let i = 0; i < 10; i++) s += parseInt(n[i]) * (11 - i)
+  r = (s * 10) % 11; if (r === 10 || r === 11) r = 0
+  return r === parseInt(n[10])
+}
+
+function validarEmail(email) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())
+}
+
+function validarTelefone(tel) {
+  const n = tel.replace(/\D/g, '')
+  // Brasil: 11 dígitos (DDD + 9 dígitos), DDD entre 11 e 99
+  if (n.length !== 11) return false
+  const ddd = parseInt(n.slice(0, 2))
+  if (ddd < 11 || ddd > 99) return false
+  return n[2] === '9' // celular começa com 9
+}
+
+function validarChavePix(tipo, chave) {
+  if (!chave.trim()) return { ok: false, msg: 'Chave obrigatória' }
+  switch (tipo) {
+    case 'CPF':
+      if (!validarCPF(chave)) return { ok: false, msg: 'CPF inválido — verifique os 11 dígitos' }
+      return { ok: true, msg: '' }
+    case 'E-mail':
+      if (!validarEmail(chave)) return { ok: false, msg: 'E-mail inválido — deve conter @ e domínio' }
+      return { ok: true, msg: '' }
+    case 'Telefone':
+      if (!validarTelefone(chave)) return { ok: false, msg: 'Telefone inválido — 11 dígitos com DDD (ex: 11999999999)' }
+      return { ok: true, msg: '' }
+    case 'Aleatória':
+      return { ok: true, msg: '' }
+    default:
+      return { ok: true, msg: '' }
+  }
+}
+
+// Formata CPF enquanto digita: 000.000.000-00
+function formatarCPF(valor) {
+  const n = valor.replace(/\D/g, '').slice(0, 11)
+  if (n.length <= 3) return n
+  if (n.length <= 6) return n.slice(0,3) + '.' + n.slice(3)
+  if (n.length <= 9) return n.slice(0,3) + '.' + n.slice(3,6) + '.' + n.slice(6)
+  return n.slice(0,3) + '.' + n.slice(3,6) + '.' + n.slice(6,9) + '-' + n.slice(9)
+}
+
+// Formata telefone enquanto digita: (11) 99999-9999
+function formatarTelefone(valor) {
+  const n = valor.replace(/\D/g, '').slice(0, 11)
+  if (n.length <= 2) return n.length ? '(' + n : n
+  if (n.length <= 7) return '(' + n.slice(0,2) + ') ' + n.slice(2)
+  return '(' + n.slice(0,2) + ') ' + n.slice(2,7) + '-' + n.slice(7)
+}
+
 // Hash simples para senha (não use em sistemas bancários, ok para uso interno)
 async function hashSenha(senha) {
   const encoder = new TextEncoder()
@@ -369,28 +432,42 @@ function TabExtras({ store, today, setModal }) {
 function ModalAddExtra({ store, today, onClose }) {
   const { pessoas, setores, addExtra } = store
   const [pessoaId, setPessoaId] = useState('')
-  const [nome, setNome] = useState('')
+  const [nomeAvulso, setNomeAvulso] = useState('')
+  const [modoAvulso, setModoAvulso] = useState(false)
   const [funcao, setFuncao] = useState('')
   const [setorId, setSetorId] = useState('')
   const [turnos, setTurnos] = useState('')
   const [valorDisplay, setValorDisplay] = useState('')
   const [obs, setObs] = useState('')
+
   const pessoa = pessoas.find(p => p.id === pessoaId)
+  const nomeUsado = modoAvulso ? nomeAvulso : (pessoa?.nome || '')
 
   useEffect(() => {
     if (!pessoa) return
-    setNome(pessoa.nome); setFuncao(pessoa.funcao); setSetorId(pessoa.setor_id)
+    setFuncao(pessoa.funcao || '')
+    setSetorId(pessoa.setor_id || '')
     const base = isWeekend(today) ? pessoa.val_sex_dom : pessoa.val_seg_qui
     const mult = turnos === 'TD+TN' ? 2 : 1
     setValorDisplay(fmt(base * mult))
   }, [pessoaId, turnos])
 
+  const trocarModo = () => {
+    setModoAvulso(!modoAvulso)
+    setPessoaId('')
+    setNomeAvulso('')
+    setFuncao('')
+    setSetorId('')
+    setValorDisplay('')
+  }
+
   const save = async () => {
-    if (!nome.trim()) return alert('Nome obrigatório')
+    if (!nomeUsado.trim()) return alert(modoAvulso ? 'Digite o nome do extra.' : 'Selecione uma pessoa cadastrada.')
     const v = parseCents(valorDisplay)
+    if (!v) return alert('Informe o valor.')
     await addExtra({
-      pessoa_id:          pessoaId || null,
-      nome:               nome.trim(),
+      pessoa_id:          modoAvulso ? null : (pessoaId || null),
+      nome:               nomeUsado.trim(),
       funcao,
       setor_id:           setorId,
       data_op:            today,
@@ -416,33 +493,81 @@ function ModalAddExtra({ store, today, onClose }) {
   return (
     <Modal title="Novo Extra" onClose={onClose}>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-        <div><label style={S.label}>Pessoa cadastrada</label>
-          <select value={pessoaId} onChange={e => setPessoaId(e.target.value)} style={S.input}>
-            <option value="">— Selecionar —</option>
-            {pessoas.map(p => <option key={p.id} value={p.id}>{p.nome}</option>)}
-          </select>
+
+        {/* Toggle cadastrado / avulso */}
+        <div style={{ display: 'flex', background: '#f0e8d8', borderRadius: 10, padding: 4 }}>
+          <button onClick={() => { if (modoAvulso) trocarModo() }}
+            style={{ flex: 1, padding: '8px', border: 'none', borderRadius: 8, background: !modoAvulso ? '#fff' : 'transparent', cursor: 'pointer', fontSize: 13, fontWeight: !modoAvulso ? 700 : 400, color: !modoAvulso ? '#c9a96e' : '#999' }}>
+            👤 Cadastrado
+          </button>
+          <button onClick={() => { if (!modoAvulso) trocarModo() }}
+            style={{ flex: 1, padding: '8px', border: 'none', borderRadius: 8, background: modoAvulso ? '#fff' : 'transparent', cursor: 'pointer', fontSize: 13, fontWeight: modoAvulso ? 700 : 400, color: modoAvulso ? '#c9a96e' : '#999' }}>
+            ✏️ Avulso
+          </button>
         </div>
-        <div><label style={S.label}>Nome *</label><input value={nome} onChange={e => setNome(e.target.value)} style={S.input} placeholder="Nome completo" /></div>
+
+        {!modoAvulso ? (
+          <div>
+            <label style={S.label}>Selecionar pessoa *</label>
+            <select value={pessoaId} onChange={e => setPessoaId(e.target.value)} style={{ ...S.input, fontWeight: pessoaId ? 700 : 400 }}>
+              <option value="">— Escolha uma pessoa —</option>
+              {pessoas.sort((a,b) => a.nome.localeCompare(b.nome)).map(p => (
+                <option key={p.id} value={p.id}>{p.nome} · {p.funcao}</option>
+              ))}
+            </select>
+            {pessoaId && (
+              <div style={{ marginTop: 6, padding: '8px 10px', background: '#f5f0e8', borderRadius: 8, fontSize: 12, color: '#8a7355' }}>
+                ✓ {pessoa?.nome} · {pessoa?.funcao}
+                {pessoa?.setor_id && setores.find(s => s.id === pessoa.setor_id) && ' · ' + setores.find(s => s.id === pessoa.setor_id).nome}
+                <br />Seg-Qui: {fmt(pessoa?.val_seg_qui)} · Sex-Dom: {fmt(pessoa?.val_sex_dom)}
+              </div>
+            )}
+          </div>
+        ) : (
+          <div>
+            <label style={S.label}>Nome do extra *</label>
+            <input value={nomeAvulso} onChange={e => setNomeAvulso(e.target.value)} style={S.input} placeholder="Nome completo" autoFocus />
+          </div>
+        )}
+
         <div style={{ display: 'flex', gap: 8 }}>
-          <div style={{ flex: 1 }}><label style={S.label}>Função</label><input value={funcao} onChange={e => setFuncao(e.target.value)} style={S.input} /></div>
-          <div style={{ flex: 1 }}><label style={S.label}>Setor</label>
+          <div style={{ flex: 1 }}>
+            <label style={S.label}>Função</label>
+            <input value={funcao} onChange={e => setFuncao(e.target.value)} style={S.input} placeholder="Churrasqueiro..." />
+          </div>
+          <div style={{ flex: 1 }}>
+            <label style={S.label}>Setor</label>
             <select value={setorId} onChange={e => setSetorId(e.target.value)} style={S.input}>
               <option value="">—</option>
               {setores.filter(s => s.ativo).map(s => <option key={s.id} value={s.id}>{s.nome}</option>)}
             </select>
           </div>
         </div>
-        <div><label style={S.label}>Turno</label>
+
+        <div>
+          <label style={S.label}>Turno</label>
           <div style={{ display: 'flex', gap: 8 }}>
             {['TD', 'TN', 'TD+TN', ''].map((t, i) => (
-              <button key={i} onClick={() => setTurnos(t)} style={{ flex: 1, padding: '8px 4px', border: `2px solid ${turnos === t ? '#c9a96e' : '#e0d5c5'}`, borderRadius: 8, background: turnos === t ? '#c9a96e22' : '#fff', cursor: 'pointer', fontSize: 12, fontWeight: turnos === t ? 700 : 400, color: turnos === t ? '#c9a96e' : '#666' }}>{t || '—'}</button>
+              <button key={i} onClick={() => setTurnos(t)}
+                style={{ flex: 1, padding: '8px 4px', border: `2px solid ${turnos === t ? '#c9a96e' : '#e0d5c5'}`, borderRadius: 8, background: turnos === t ? '#c9a96e22' : '#fff', cursor: 'pointer', fontSize: 12, fontWeight: turnos === t ? 700 : 400, color: turnos === t ? '#c9a96e' : '#666' }}>
+                {t || '—'}
+              </button>
             ))}
           </div>
         </div>
-        <div><label style={S.label}>Valor</label>
-          <input value={valorDisplay} onChange={e => { const r = e.target.value.replace(/\D/g, ''); setValorDisplay(r ? fmt(parseInt(r)) : '') }} style={S.input} placeholder="R$ 0,00" inputMode="numeric" />
+
+        <div>
+          <label style={S.label}>Valor *</label>
+          <input value={valorDisplay}
+            onChange={e => { const r = e.target.value.replace(/\D/g, ''); setValorDisplay(r ? fmt(parseInt(r)) : '') }}
+            style={{ ...S.input, fontSize: 18, fontWeight: 700 }} placeholder="R$ 0,00" inputMode="numeric" />
         </div>
-        <div><label style={S.label}>Observação</label><input value={obs} onChange={e => setObs(e.target.value)} style={S.input} placeholder="Opcional..." /></div>
+
+        <div>
+          <label style={S.label}>Observação</label>
+          <input value={obs} onChange={e => setObs(e.target.value)} style={S.input} placeholder="Opcional..." />
+        </div>
+
         <div style={{ display: 'flex', gap: 8 }}>
           <button onClick={onClose} style={S.btn('#999')}>Cancelar</button>
           <button onClick={save} style={{ ...S.btn('#c9a96e'), flex: 2, fontWeight: 700 }}>Salvar</button>
@@ -1165,6 +1290,39 @@ function ModalHistoricoFuncionario({ pessoa, from, to, setores, config, onClose 
 
 // ─── MODAL ADICIONAR PESSOA ───────────────────────────────────────────────────
 
+function CampoPix({ tipoPix, chavePix, setChavePix }) {
+  const erro = chavePix ? validarChavePix(tipoPix, chavePix) : { ok: true, msg: '' }
+
+  const handleChange = (val) => {
+    if (tipoPix === 'CPF') setChavePix(formatarCPF(val))
+    else if (tipoPix === 'Telefone') setChavePix(formatarTelefone(val))
+    else setChavePix(val)
+  }
+
+  return (
+    <div>
+      <input
+        value={chavePix}
+        onChange={e => handleChange(e.target.value)}
+        style={{ ...S.input, borderColor: chavePix && !erro.ok ? '#ef4444' : '#e0d5c5' }}
+        placeholder={
+          tipoPix === 'CPF' ? '000.000.000-00' :
+          tipoPix === 'Telefone' ? '(11) 99999-9999' :
+          tipoPix === 'E-mail' ? 'exemplo@email.com' :
+          'Chave aleatória'
+        }
+        inputMode={tipoPix === 'CPF' || tipoPix === 'Telefone' ? 'numeric' : 'text'}
+      />
+      {chavePix && !erro.ok && (
+        <div style={{ fontSize: 11, color: '#ef4444', marginTop: 3 }}>⚠ {erro.msg}</div>
+      )}
+      {chavePix && erro.ok && (
+        <div style={{ fontSize: 11, color: '#22c55e', marginTop: 3 }}>✓ Chave válida</div>
+      )}
+    </div>
+  )
+}
+
 function ModalAddPessoa({ store, onClose }) {
   const { addPessoa, setores } = store
   const [nome, setNome] = useState('')
@@ -1178,6 +1336,10 @@ function ModalAddPessoa({ store, onClose }) {
 
   const save = async () => {
     if (!nome.trim()) return alert('Nome obrigatório')
+    if (chavePix.trim()) {
+      const v = validarChavePix(tipoPix, chavePix)
+      if (!v.ok) return alert('Chave Pix inválida: ' + v.msg)
+    }
     await addPessoa({ nome: nome.trim(), funcao, telefone: tel, setor_id: setorId, val_seg_qui: parseCents(valSQ), val_sex_dom: parseCents(valSD), tipo_pix: tipoPix, chave_pix: chavePix.trim() })
     onClose()
   }
@@ -1206,7 +1368,10 @@ function ModalAddPessoa({ store, onClose }) {
               {['CPF', 'Telefone', 'E-mail', 'Aleatória'].map(t => <option key={t}>{t}</option>)}
             </select>
           </div>
-          <div style={{ flex: 2 }}><label style={S.label}>Chave Pix</label><input value={chavePix} onChange={e => setChavePix(e.target.value)} style={S.input} /></div>
+          <div style={{ flex: 2 }}>
+            <label style={S.label}>Chave Pix</label>
+            <CampoPix tipoPix={tipoPix} chavePix={chavePix} setChavePix={setChavePix} />
+          </div>
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
           <button onClick={onClose} style={S.btn('#999')}>Cancelar</button>
@@ -1232,6 +1397,10 @@ function ModalEditPessoa({ store, pessoa, onClose }) {
 
   const save = async () => {
     if (!nome.trim()) return alert('Nome obrigatório')
+    if (chavePix.trim()) {
+      const v = validarChavePix(tipoPix, chavePix)
+      if (!v.ok) return alert('Chave Pix inválida: ' + v.msg)
+    }
     await updatePessoa(pessoa.id, { nome: nome.trim(), funcao, telefone: tel, setor_id: setorId, val_seg_qui: parseCents(valSQ), val_sex_dom: parseCents(valSD), tipo_pix: tipoPix, chave_pix: chavePix.trim() })
     onClose()
   }
@@ -1260,7 +1429,10 @@ function ModalEditPessoa({ store, pessoa, onClose }) {
               {['CPF', 'Telefone', 'E-mail', 'Aleatória'].map(t => <option key={t}>{t}</option>)}
             </select>
           </div>
-          <div style={{ flex: 2 }}><label style={S.label}>Chave Pix</label><input value={chavePix} onChange={e => setChavePix(e.target.value)} style={S.input} /></div>
+          <div style={{ flex: 2 }}>
+            <label style={S.label}>Chave Pix</label>
+            <CampoPix tipoPix={tipoPix} chavePix={chavePix} setChavePix={setChavePix} />
+          </div>
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
           <button onClick={onClose} style={S.btn('#999')}>Cancelar</button>
