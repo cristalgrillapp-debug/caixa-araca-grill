@@ -1,7 +1,6 @@
-import { imprimirRecibos } from './impressao'
 import { useState, useEffect, useRef } from 'react'
 import { db } from './firebase'
-import { collection, addDoc, updateDoc, setDoc, doc, onSnapshot, deleteDoc, runTransaction, getDoc } from 'firebase/firestore'
+import { collection, addDoc, updateDoc, doc, onSnapshot, deleteDoc } from 'firebase/firestore'
 
 const fmt = (cents) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format((cents || 0) / 100)
 const parseCents = (str) => parseInt(String(str).replace(/\D/g, '') || '0', 10)
@@ -15,6 +14,17 @@ const DEFAULT_CONFIG = {
   horario_virada_m: 30,
 }
 
+const getConfig = () => {
+  try {
+    const saved = localStorage.getItem('araca_config')
+    return saved ? { ...DEFAULT_CONFIG, ...JSON.parse(saved) } : { ...DEFAULT_CONFIG }
+  } catch { return { ...DEFAULT_CONFIG } }
+}
+
+const saveConfig = (cfg) => {
+  try { localStorage.setItem('araca_config', JSON.stringify(cfg)) } catch {}
+}
+
 const todayOp = (cfg) => {
   const now = new Date()
   const h = now.getHours(), m = now.getMinutes()
@@ -25,22 +35,24 @@ const todayOp = (cfg) => {
   }
   return toDateStr(now)
 }
+
 const dayLabel = (dateStr) => {
   if (!dateStr) return ''
-  const [y, m, d] = dateStr.split('-')
-  const dt = new Date(Number(y), Number(m) - 1, Number(d))
-  return DIAS[dt.getDay()] + ' ' + String(dt.getDate()).padStart(2, '0') + '/' + String(dt.getMonth() + 1).padStart(2, '0')
+  const d = new Date(dateStr + 'T12:00:00')
+  return DIAS[d.getDay()] + ' ' + String(d.getDate()).padStart(2, '0') + '/' + String(d.getMonth() + 1).padStart(2, '0')
 }
-const isWeekend = (dateStr) => { const d = new Date(dateStr + 'T12:00:00'); return [5, 6, 0].includes(d.getDay()) }
+
+const isWeekend = (dateStr) => {
+  const d = new Date(dateStr + 'T12:00:00')
+  return [5, 6, 0].includes(d.getDay())
+}
+
 const calcNotes = (cents) => {
   let rem = cents
   const n = { 100: 0, 50: 0, 20: 0, 10: 0 }
   ;[100, 50, 20, 10].forEach(v => { n[v] = Math.floor(rem / (v * 100)); rem = rem % (v * 100) })
   return n
 }
-
-// trocos: [{ data, valor, descricao }]
-const totalTrocos = (trocos) => (trocos || []).reduce((a, t) => a + t.valor, 0)
 
 const S = {
   app: { minHeight: '100vh', background: '#f5f0e8', fontFamily: 'Georgia, serif', maxWidth: 480, margin: '0 auto' },
@@ -82,8 +94,10 @@ const SignaturePad = ({ onSave, onCancel }) => {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
       <p style={{ margin: 0, fontSize: 13, color: '#666' }}>Assine abaixo com o dedo:</p>
-      <canvas ref={ref} width={320} height={150} style={{ border: '2px solid #c9a96e', borderRadius: 8, background: '#fafafa', touchAction: 'none', width: '100%', height: 150 }}
-        onMouseDown={start} onMouseMove={draw} onMouseUp={end} onTouchStart={start} onTouchMove={draw} onTouchEnd={end} />
+      <canvas ref={ref} width={320} height={150}
+        style={{ border: '2px solid #c9a96e', borderRadius: 8, background: '#fafafa', touchAction: 'none', width: '100%', height: 150 }}
+        onMouseDown={start} onMouseMove={draw} onMouseUp={end}
+        onTouchStart={start} onTouchMove={draw} onTouchEnd={end} />
       <div style={{ display: 'flex', gap: 8 }}>
         <button onClick={clear} style={S.btn('#999')}>Limpar</button>
         <button onClick={onCancel} style={S.btn('#666')}>Cancelar</button>
@@ -93,19 +107,22 @@ const SignaturePad = ({ onSave, onCancel }) => {
   )
 }
 
+// ─── APP PRINCIPAL ────────────────────────────────────────────────────────────
+
 export default function App() {
   const [tab, setTab] = useState('extras')
   const [extras, setExtras] = useState([])
   const [pessoas, setPessoas] = useState([])
   const [setores, setSetores] = useState([])
   const [modal, setModal] = useState(null)
-  const [config, setConfig] = useState(DEFAULT_CONFIG)
+  const [config, setConfig] = useState(getConfig)
+
   const today = todayOp(config)
 
-  const updateConfig = async (changes) => {
+  const updateConfig = (changes) => {
     const novo = { ...config, ...changes }
     setConfig(novo)
-    await updateDoc(doc(db, 'configuracoes', 'geral'), novo)
+    saveConfig(novo)
   }
 
   useEffect(() => {
@@ -120,15 +137,6 @@ export default function App() {
           )
         } else setSetores(data)
       }),
-      onSnapshot(doc(db, 'configuracoes', 'geral'), async (snap) => {
-        if (snap.exists()) {
-          setConfig({ ...DEFAULT_CONFIG, ...snap.data() })
-        } else {
-          // Primeira vez: cria o documento com valores padrão
-          await setDoc(doc(db, 'configuracoes', 'geral'), DEFAULT_CONFIG)
-          setConfig(DEFAULT_CONFIG)
-        }
-      }),
     ]
     return () => unsubs.forEach(u => u())
   }, [])
@@ -136,14 +144,19 @@ export default function App() {
   const addExtra = async (data) => await addDoc(collection(db, 'extras'), data)
   const updateExtra = async (id, data) => await updateDoc(doc(db, 'extras', id), data)
   const removeExtra = async (id) => await deleteDoc(doc(db, 'extras', id))
-  const addPessoa = async (data) => await addDoc(collection(db, 'pessoas'), { ...data, trocos: [] })
+  const addPessoa = async (data) => await addDoc(collection(db, 'pessoas'), { ...data, ajuste_pendente: 0 })
   const updatePessoa = async (id, data) => await updateDoc(doc(db, 'pessoas', id), data)
   const removePessoa = async (id) => await deleteDoc(doc(db, 'pessoas', id))
   const addSetor = async (data) => await addDoc(collection(db, 'setores'), data)
   const updateSetor = async (id, data) => await updateDoc(doc(db, 'setores', id), data)
   const removeSetor = async (id) => await deleteDoc(doc(db, 'setores', id))
 
-  const store = { extras, pessoas, setores, config, updateConfig, addExtra, updateExtra, removeExtra, addPessoa, updatePessoa, removePessoa, addSetor, updateSetor, removeSetor }
+  const store = {
+    extras, pessoas, setores, config, updateConfig,
+    addExtra, updateExtra, removeExtra,
+    addPessoa, updatePessoa, removePessoa,
+    addSetor, updateSetor, removeSetor,
+  }
 
   const tabs = [
     { id: 'extras', icon: '👤', label: 'Extras' },
@@ -167,6 +180,7 @@ export default function App() {
           </div>
         </div>
       </div>
+
       <div style={S.content}>
         {tab === 'extras'      && <TabExtras store={store} today={today} setModal={setModal} />}
         {tab === 'pagamentos'  && <TabPagamentos store={store} today={today} setModal={setModal} />}
@@ -174,18 +188,21 @@ export default function App() {
         {tab === 'relatorios'  && <TabRelatorios store={store} />}
         {tab === 'config'      && <TabConfig store={store} setModal={setModal} />}
       </div>
+
       <div style={S.nav}>
         {tabs.map(t => (
-          <button key={t.id} onClick={() => setTab(t.id)} style={{ flex: 1, border: 'none', background: 'none', padding: '10px 4px 12px', cursor: 'pointer', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2 }}>
+          <button key={t.id} onClick={() => setTab(t.id)}
+            style={{ flex: 1, border: 'none', background: 'none', padding: '10px 4px 12px', cursor: 'pointer', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2 }}>
             <span style={{ fontSize: 20 }}>{t.icon}</span>
             <span style={{ fontSize: 9, color: tab === t.id ? '#c9a96e' : '#999', fontWeight: tab === t.id ? 700 : 400, fontFamily: 'sans-serif', textTransform: 'uppercase' }}>{t.label}</span>
             {tab === t.id && <div style={{ width: 20, height: 2, background: '#c9a96e', borderRadius: 1 }} />}
           </button>
         ))}
       </div>
+
       {modal?.type === 'addExtra'   && <ModalAddExtra store={store} today={today} onClose={() => setModal(null)} />}
       {modal?.type === 'editExtra'  && <ModalEditExtra store={store} extra={modal.extra} onClose={() => setModal(null)} />}
-      {modal?.type === 'pagar'      && <ModalPagar store={store} extra={modal.extra} today={today} onClose={() => setModal(null)} />}
+      {modal?.type === 'pagar'      && <ModalPagar store={store} extra={modal.extra} onClose={() => setModal(null)} />}
       {modal?.type === 'addPessoa'  && <ModalAddPessoa store={store} onClose={() => setModal(null)} />}
       {modal?.type === 'editPessoa' && <ModalEditPessoa store={store} pessoa={modal.pessoa} onClose={() => setModal(null)} />}
     </div>
@@ -200,881 +217,4 @@ function TabExtras({ store, today, setModal }) {
   const total = todayExtras.reduce((a, e) => a + e.valor_final, 0)
 
   const duplicar = async () => {
-    const ontem = toDateStr(new Date(new Date(today + 'T12:00:00').getTime() - 86400000))
-    const ontemExtras = extras.filter(e => e.data_op === ontem)
-    if (ontemExtras.length === 0) return alert('Nenhum extra ontem para duplicar.')
-    for (const e of ontemExtras) {
-      const p = pessoas.find(x => x.id === e.pessoa_id)
-      const val = p ? (isWeekend(today) ? p.val_sex_dom : p.val_seg_qui) : e.valor_original || e.valor_final
-      // Cria explicitamente — nunca copia flags de pagamento do dia anterior
-      await addExtra({
-        pessoa_id:       e.pessoa_id,
-        nome:            e.nome,
-        funcao:          e.funcao,
-        setor_id:        e.setor_id,
-        turnos:          e.turnos,
-        obs:             e.obs || '',
-        data_op:         today,
-        data_real:       toDateStr(new Date()),
-        valor_extra:     val,
-        valor_original:  val,
-        valor_final:     val,
-        pago:            false,
-        previsao:        'indefinido',
-        assinatura:      null,
-        forma_pagamento: null,
-        lancado:         false,
-        trocos_descontados: [],
-        troco_gerado:    0,
-        desconto_troco:  0,
-        valor_pago:      0,
-      })
-    }
-  }
-
-  return (
-    <div>
-      <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
-        <button onClick={() => setModal({ type: 'addExtra' })} style={{ ...S.btn('#c9a96e'), flex: 3, fontWeight: 700 }}>+ Novo Extra</button>
-        <button onClick={() => setModal({ type: 'addPessoa' })} style={{ ...S.btn('#6e7c8a'), flex: 2 }}>+ Pessoa</button>
-        <button onClick={duplicar} style={{ ...S.btn('#8a7355'), flex: 2 }}>📋 Duplicar</button>
-      </div>
-      <div style={{ ...S.card, background: 'linear-gradient(135deg,#1a1a2e,#2d2340)', color: '#fff' }}>
-        <div style={{ fontSize: 11, color: '#c9a96e', textTransform: 'uppercase' }}>Total do Dia</div>
-        <div style={{ fontSize: 28, fontWeight: 700, color: '#c9a96e' }}>{fmt(total)}</div>
-        <div style={{ fontSize: 12, color: '#ffffff80' }}>{todayExtras.length} extras</div>
-      </div>
-      {todayExtras.length === 0 && <div style={{ ...S.card, textAlign: 'center', padding: 32, color: '#999' }}><div style={{ fontSize: 40 }}>🍖</div><div>Nenhum extra hoje</div></div>}
-      {todayExtras.map(e => {
-        const setor = store.setores.find(s => s.id === e.setor_id)
-        const pessoa = store.pessoas.find(p => p.id === e.pessoa_id)
-        const trocosTotal = totalTrocos(pessoa?.trocos)
-        return (
-          <div key={e.id} style={S.card}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-              <div>
-                <div style={{ fontWeight: 700, fontSize: 16 }}>{e.nome}</div>
-                <div style={{ fontSize: 13, color: '#8a7355' }}>{e.funcao}{setor ? ' · ' + setor.nome : ''}</div>
-                {e.turnos && <Badge>{e.turnos}</Badge>}
-                {e.obs ? <div style={{ fontSize: 12, color: '#aaa', marginTop: 2 }}>{e.obs}</div> : null}
-                {trocosTotal > 0 && !e.pago && (
-                  <div style={{ fontSize: 11, color: '#ef4444', marginTop: 3, fontWeight: 600 }}>
-                    🔴 Troco a descontar: {fmt(trocosTotal)}
-                  </div>
-                )}
-              </div>
-              <div style={{ textAlign: 'right' }}>
-                <div style={{ fontSize: 18, fontWeight: 700, color: '#c9a96e' }}>{fmt(e.valor_final)}</div>
-                {e.pago ? <Badge color="#22c55e">✓ Pago</Badge> : <Badge color="#f59e0b">Pendente</Badge>}
-              </div>
-            </div>
-            {!e.pago && (
-              <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
-                <button onClick={() => setModal({ type: 'editExtra', extra: e })} style={{ background: 'none', border: '1px solid #c9a96e', borderRadius: 6, padding: '4px 12px', fontSize: 12, color: '#c9a96e', cursor: 'pointer' }}>✏️ Editar</button>
-                <button onClick={() => { if (confirm('Remover ' + e.nome + '?')) removeExtra(e.id) }} style={{ background: 'none', border: '1px solid #f0e8d8', borderRadius: 6, padding: '4px 10px', fontSize: 12, color: '#ef4444', cursor: 'pointer' }}>Remover</button>
-              </div>
-            )}
-          </div>
-        )
-      })}
-    </div>
-  )
-}
-
-// ─── MODAL NOVO EXTRA ─────────────────────────────────────────────────────────
-
-function ModalAddExtra({ store, today, onClose }) {
-  const { pessoas, setores, addExtra } = store
-  const [pessoaId, setPessoaId] = useState('')
-  const [nome, setNome] = useState('')
-  const [funcao, setFuncao] = useState('')
-  const [setorId, setSetorId] = useState('')
-  const [turnos, setTurnos] = useState('')
-  const [valorDisplay, setValorDisplay] = useState('')
-  const [obs, setObs] = useState('')
-  const pessoa = pessoas.find(p => p.id === pessoaId)
-
-  useEffect(() => {
-    if (!pessoa) return
-    setNome(pessoa.nome); setFuncao(pessoa.funcao); setSetorId(pessoa.setor_id)
-    const base = isWeekend(today) ? pessoa.val_sex_dom : pessoa.val_seg_qui
-    const mult = turnos === 'TD+TN' ? 2 : 1
-    setValorDisplay(fmt(base * mult))
-  }, [pessoaId, turnos])
-
-  const save = async () => {
-    if (!nome.trim()) return alert('Nome obrigatório')
-    const v = parseCents(valorDisplay)
-    await addExtra({
-      pessoa_id:          pessoaId || null,
-      nome:               nome.trim(),
-      funcao,
-      setor_id:           setorId,
-      data_op:            today,
-      data_real:          toDateStr(new Date()),
-      turnos,
-      obs,
-      valor_extra:        v,
-      valor_original:     v,
-      valor_final:        v,
-      desconto_troco:     0,
-      valor_pago:         0,
-      troco_gerado:       0,
-      pago:               false,
-      previsao:           'indefinido',
-      assinatura:         null,
-      forma_pagamento:    null,
-      lancado:            false,
-      trocos_descontados: [],
-    })
-    onClose()
-  }
-
-  return (
-    <Modal title="Novo Extra" onClose={onClose}>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-        <div><label style={S.label}>Pessoa cadastrada</label>
-          <select value={pessoaId} onChange={e => setPessoaId(e.target.value)} style={S.input}>
-            <option value="">— Selecionar —</option>
-            {pessoas.map(p => <option key={p.id} value={p.id}>{p.nome}</option>)}
-          </select>
-        </div>
-        <div><label style={S.label}>Nome *</label><input value={nome} onChange={e => setNome(e.target.value)} style={S.input} placeholder="Nome completo" /></div>
-        <div style={{ display: 'flex', gap: 8 }}>
-          <div style={{ flex: 1 }}><label style={S.label}>Função</label><input value={funcao} onChange={e => setFuncao(e.target.value)} style={S.input} /></div>
-          <div style={{ flex: 1 }}><label style={S.label}>Setor</label>
-            <select value={setorId} onChange={e => setSetorId(e.target.value)} style={S.input}>
-              <option value="">—</option>
-              {setores.filter(s => s.ativo).map(s => <option key={s.id} value={s.id}>{s.nome}</option>)}
-            </select>
-          </div>
-        </div>
-        <div><label style={S.label}>Turno</label>
-          <div style={{ display: 'flex', gap: 8 }}>
-            {['TD', 'TN', 'TD+TN', ''].map((t, i) => (
-              <button key={i} onClick={() => setTurnos(t)} style={{ flex: 1, padding: '8px 4px', border: `2px solid ${turnos === t ? '#c9a96e' : '#e0d5c5'}`, borderRadius: 8, background: turnos === t ? '#c9a96e22' : '#fff', cursor: 'pointer', fontSize: 12, fontWeight: turnos === t ? 700 : 400, color: turnos === t ? '#c9a96e' : '#666' }}>{t || '—'}</button>
-            ))}
-          </div>
-        </div>
-        <div><label style={S.label}>Valor</label>
-          <input value={valorDisplay} onChange={e => { const r = e.target.value.replace(/\D/g, ''); setValorDisplay(r ? fmt(parseInt(r)) : '') }} style={S.input} placeholder="R$ 0,00" inputMode="numeric" />
-        </div>
-        <div><label style={S.label}>Observação</label><input value={obs} onChange={e => setObs(e.target.value)} style={S.input} placeholder="Opcional..." /></div>
-        <div style={{ display: 'flex', gap: 8 }}>
-          <button onClick={onClose} style={S.btn('#999')}>Cancelar</button>
-          <button onClick={save} style={{ ...S.btn('#c9a96e'), flex: 2, fontWeight: 700 }}>Salvar</button>
-        </div>
-      </div>
-    </Modal>
-  )
-}
-
-// ─── MODAL EDITAR EXTRA ───────────────────────────────────────────────────────
-
-function ModalEditExtra({ store, extra, onClose }) {
-  const { setores, updateExtra } = store
-  const [nome, setNome] = useState(extra.nome)
-  const [funcao, setFuncao] = useState(extra.funcao || '')
-  const [setorId, setSetorId] = useState(extra.setor_id || '')
-  const [turnos, setTurnos] = useState(extra.turnos || '')
-  const [valorDisplay, setValorDisplay] = useState(fmt(extra.valor_final))
-  const [obs, setObs] = useState(extra.obs || '')
-
-  const save = async () => {
-    if (!nome.trim()) return alert('Nome obrigatório')
-    const v = parseCents(valorDisplay)
-    await updateExtra(extra.id, { nome: nome.trim(), funcao, setor_id: setorId, turnos, valor_final: v, valor_original: v, obs })
-    onClose()
-  }
-
-  return (
-    <Modal title="Editar Extra" onClose={onClose}>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-        <div><label style={S.label}>Nome *</label><input value={nome} onChange={e => setNome(e.target.value)} style={S.input} /></div>
-        <div style={{ display: 'flex', gap: 8 }}>
-          <div style={{ flex: 1 }}><label style={S.label}>Função</label><input value={funcao} onChange={e => setFuncao(e.target.value)} style={S.input} /></div>
-          <div style={{ flex: 1 }}><label style={S.label}>Setor</label>
-            <select value={setorId} onChange={e => setSetorId(e.target.value)} style={S.input}>
-              <option value="">—</option>
-              {setores.filter(s => s.ativo).map(s => <option key={s.id} value={s.id}>{s.nome}</option>)}
-            </select>
-          </div>
-        </div>
-        <div><label style={S.label}>Turno</label>
-          <div style={{ display: 'flex', gap: 8 }}>
-            {['TD', 'TN', 'TD+TN', ''].map((t, i) => (
-              <button key={i} onClick={() => setTurnos(t)} style={{ flex: 1, padding: '8px 4px', border: `2px solid ${turnos === t ? '#c9a96e' : '#e0d5c5'}`, borderRadius: 8, background: turnos === t ? '#c9a96e22' : '#fff', cursor: 'pointer', fontSize: 12, fontWeight: turnos === t ? 700 : 400, color: turnos === t ? '#c9a96e' : '#666' }}>{t || '—'}</button>
-            ))}
-          </div>
-        </div>
-        <div><label style={S.label}>Valor</label>
-          <input value={valorDisplay} onChange={e => { const r = e.target.value.replace(/\D/g, ''); setValorDisplay(r ? fmt(parseInt(r)) : '') }} style={S.input} placeholder="R$ 0,00" inputMode="numeric" />
-        </div>
-        <div><label style={S.label}>Observação</label><input value={obs} onChange={e => setObs(e.target.value)} style={S.input} placeholder="Opcional..." /></div>
-        <div style={{ display: 'flex', gap: 8 }}>
-          <button onClick={onClose} style={S.btn('#999')}>Cancelar</button>
-          <button onClick={save} style={{ ...S.btn('#c9a96e'), flex: 2, fontWeight: 700 }}>Salvar</button>
-        </div>
-      </div>
-    </Modal>
-  )
-}
-
-// ─── ABA PAGAMENTOS ───────────────────────────────────────────────────────────
-
-function TabPagamentos({ store, today, setModal }) {
-  const { extras, setores, pessoas, updateExtra, config } = store
-  const pendentes = extras.filter(e => e.data_op === today && !e.pago)
-  const pagos = extras.filter(e => e.data_op === today && e.pago)
-  const dinheiroTotal = pendentes.filter(e => e.previsao !== 'pix').reduce((a, e) => a + e.valor_final, 0)
-  const pixTotal = pendentes.filter(e => e.previsao === 'pix').reduce((a, e) => a + e.valor_final, 0)
-  const notes = calcNotes(dinheiroTotal)
-
-  return (
-    <div>
-      <div style={{ ...S.card, background: 'linear-gradient(135deg,#1a1a2e,#2d2340)', color: '#fff' }}>
-        <div style={{ display: 'flex', gap: 16, marginBottom: 10 }}>
-          <div style={{ flex: 1 }}><div style={{ fontSize: 10, color: '#c9a96e80', textTransform: 'uppercase' }}>💵 Dinheiro</div><div style={{ fontSize: 20, fontWeight: 700, color: '#c9a96e' }}>{fmt(dinheiroTotal)}</div></div>
-          <div style={{ flex: 1 }}><div style={{ fontSize: 10, color: '#60a5fa80', textTransform: 'uppercase' }}>📱 Pix</div><div style={{ fontSize: 20, fontWeight: 700, color: '#60a5fa' }}>{fmt(pixTotal)}</div></div>
-        </div>
-        <div style={{ borderTop: '1px solid #ffffff15', paddingTop: 8 }}>
-          <div style={{ fontSize: 11, color: '#c9a96e60', marginBottom: 4 }}>Notas necessárias</div>
-          <div style={{ display: 'flex', gap: 10 }}>
-            {Object.entries(notes).filter(([, q]) => q > 0).map(([n, q]) => (
-              <div key={n} style={{ textAlign: 'center' }}><div style={{ fontSize: 16, fontWeight: 700, color: '#c9a96e' }}>{q}×</div><div style={{ fontSize: 10, color: '#ffffff60' }}>R${n}</div></div>
-            ))}
-            {Object.values(notes).every(q => q === 0) && <div style={{ fontSize: 12, color: '#ffffff40' }}>—</div>}
-          </div>
-        </div>
-      </div>
-      {/* Botões de impressão */}
-      {pagos.length > 0 && (
-        <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
-          <button
-            onClick={() => imprimirRecibos(extras, pessoas, setores, config, 'dinheiro')}
-            style={{ ...S.btn('#22c55e'), flex: 1, fontWeight: 700, fontSize: 13 }}>
-            🖨️ Imprimir Dinheiro
-          </button>
-          <button
-            onClick={() => imprimirRecibos(extras, pessoas, setores, config, 'pix')}
-            style={{ ...S.btn('#3b82f6'), flex: 1, fontWeight: 700, fontSize: 13 }}>
-            🖨️ Imprimir Pix
-          </button>
-        </div>
-      )}
-      {pendentes.map(e => {
-        const setor = setores.find(s => s.id === e.setor_id)
-        const pessoa = pessoas.find(p => p.id === e.pessoa_id)
-        const trocosTotal = totalTrocos(pessoa?.trocos)
-        return (
-          <div key={e.id} style={S.card}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 10 }}>
-              <div>
-                <div style={{ fontWeight: 700 }}>{e.nome}</div>
-                <div style={{ fontSize: 12, color: '#8a7355' }}>{e.funcao}{e.turnos ? ' · ' + e.turnos : ''}{setor ? ' · ' + setor.nome : ''}</div>
-                {trocosTotal > 0 && (
-                  <div style={{ fontSize: 11, color: '#ef4444', fontWeight: 600, marginTop: 2 }}>
-                    🔴 Troco pendente: {fmt(trocosTotal)}
-                  </div>
-                )}
-              </div>
-              <div style={{ fontSize: 18, fontWeight: 700, color: '#c9a96e' }}>{fmt(e.valor_final)}</div>
-            </div>
-            <div style={{ display: 'flex', gap: 6, marginBottom: 10 }}>
-              {[['indefinido', '❓', '#999'], ['dinheiro', '💵', '#22c55e'], ['pix', '📱', '#3b82f6']].map(([v, icon, color]) => (
-                <button key={v} onClick={() => updateExtra(e.id, { previsao: v })} style={{ flex: 1, padding: '6px 4px', border: `2px solid ${e.previsao === v ? color : '#e0d5c5'}`, borderRadius: 8, background: e.previsao === v ? color + '20' : '#fff', cursor: 'pointer', fontSize: 11, color: e.previsao === v ? color : '#999', fontWeight: e.previsao === v ? 700 : 400 }}>
-                  {icon} {v === 'indefinido' ? '?' : v.charAt(0).toUpperCase() + v.slice(1)}
-                </button>
-              ))}
-            </div>
-            <button onClick={() => setModal({ type: 'pagar', extra: e })} style={{ ...S.btn('#c9a96e'), fontWeight: 700, width: '100%' }}>Efetuar Pagamento</button>
-          </div>
-        )
-      })}
-      {pagos.length > 0 && <>
-        <div style={{ fontSize: 12, color: '#999', textAlign: 'center', padding: '4px 0' }}>— Pagos —</div>
-        {pagos.map(e => (
-          <div key={e.id} style={{ ...S.card, opacity: 0.7 }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <div>
-                <div style={{ fontWeight: 600 }}>{e.nome}</div>
-                <div style={{ fontSize: 12, color: '#8a7355' }}>{e.funcao}{e.turnos ? ' · ' + e.turnos : ''}</div>
-                {e.forma_pagamento === 'pix' ? <Badge color="#3b82f6">📱 Pix</Badge> : <Badge color="#22c55e">💵 Dinheiro</Badge>}
-                {(e.trocos_descontados || []).length > 0 && (
-                  <div style={{ fontSize: 11, color: '#22c55e', marginTop: 2 }}>✓ Troco descontado: {fmt(e.trocos_descontados.reduce((a, t) => a + t.valor, 0))}</div>
-                )}
-              </div>
-              <div style={{ fontSize: 16, fontWeight: 700, color: '#22c55e' }}>{fmt(e.valor_final)}</div>
-            </div>
-          </div>
-        ))}
-      </>}
-    </div>
-  )
-}
-
-// ─── MODAL PAGAR ──────────────────────────────────────────────────────────────
-
-function ModalPagar({ store, extra, today, onClose }) {
-  const { pessoas, updateExtra, updatePessoa, config } = store
-  const pessoa = pessoas.find(p => p.id === extra.pessoa_id)
-  const trocos = pessoa?.trocos || []
-  const [step, setStep] = useState('escolha')
-  const [forma, setForma] = useState(extra.previsao === 'pix' ? 'pix' : 'dinheiro')
-  const [valorDisplay, setValorDisplay] = useState(fmt(extra.valor_final))
-  const [assinatura, setAssinatura] = useState(null)
-  // quais trocos o usuário marcou para descontar
-  const [trocosSelecionados, setTrocosSelecionados] = useState([])
-
-  const valorBase = extra.valor_final
-  const totalTrocoSel = trocosSelecionados.reduce((a, t) => a + t.valor, 0)
-  const valorSugerido = Math.max(0, valorBase - totalTrocoSel)
-  const valorCents = parseCents(valorDisplay)
-
-  // quando seleciona/deseleciona troco, atualiza valor sugerido no input
-  useEffect(() => {
-    setValorDisplay(fmt(valorSugerido))
-  }, [trocosSelecionados])
-
-  const toggleTroco = (t) => {
-    setTrocosSelecionados(prev =>
-      prev.find(x => x.data === t.data && x.valor === t.valor)
-        ? prev.filter(x => !(x.data === t.data && x.valor === t.valor))
-        : [...prev, t]
-    )
-  }
-
-  const buildPixMsg = () => {
-    const ref = dayLabel(extra.data_op)
-    let msg = `Pagar ${extra.nome} referente a extra de ${extra.funcao}${extra.turnos ? ' — ' + extra.turnos : ''} — valor original ${fmt(valorBase)}.`
-    if (trocosSelecionados.length > 0) {
-      msg += `\n\nDescontos de troco aplicados:`
-      trocosSelecionados.forEach(t => { msg += `\n• ${dayLabel(t.data)}: −${fmt(t.valor)}` })
-      msg += `\n\nValor final a pagar: ${fmt(valorCents)}`
-    }
-    msg += `\n\nREF: ${ref}\nTipo da chave: ${pessoa?.tipo_pix || '—'}\n\nCHAVE PIX:\n${pessoa?.chave_pix || '—'}`
-    return msg
-  }
-
-  const finalizar = async () => {
-    try {
-      await runTransaction(db, async (transaction) => {
-        // 1. Lê o estado mais recente do extra no Firebase
-        const extraRef = doc(db, 'extras', extra.id)
-        const extraSnap = await transaction.get(extraRef)
-
-        if (!extraSnap.exists()) throw new Error('Extra não encontrado.')
-        if (extraSnap.data()?.pago) throw new Error('JÁ_PAGO')
-
-        // 2. Calcula valores financeiros separados
-        const totalDesconto = trocosSelecionados.reduce((a, t) => a + t.valor, 0)
-        const valorPagoFinal = valorCents
-        const trocoGeradoFinal = Math.max(0, valorPagoFinal - valorBase + totalDesconto)
-
-        // 3. Atualiza o extra com valores separados
-        transaction.update(extraRef, {
-          pago:               true,
-          forma_pagamento:    forma,
-          valor_extra:        valorBase,        // valor contratado (imutável)
-          desconto_troco:     totalDesconto,    // quanto foi descontado de troco
-          valor_pago:         valorPagoFinal,   // quanto saiu do caixa
-          troco_gerado:       trocoGeradoFinal, // novo troco gerado hoje
-          valor_final:        valorPagoFinal,   // mantido por compatibilidade
-          assinatura,
-          data_pagamento:     new Date().toISOString(),
-          trocos_descontados: trocosSelecionados,
-        })
-
-        // 4. Atualiza trocos do funcionário
-        if (pessoa) {
-          const pessoaRef = doc(db, 'pessoas', pessoa.id)
-          const novosTrocos = [
-            ...trocos.filter(t =>
-              !trocosSelecionados.find(s => s.data === t.data && s.valor === t.valor)
-            )
-          ]
-          if (trocoGeradoFinal > 0) {
-            novosTrocos.push({
-              data: today,
-              valor: trocoGeradoFinal,
-              descricao: `Troco do dia ${dayLabel(today)}`,
-            })
-          }
-          transaction.update(pessoaRef, { trocos: novosTrocos })
-        }
-      })
-
-      // 5. Envia Pix fora da transaction (efeito colateral)
-      if (forma === 'pix') {
-        const numero = config?.whatsapp_pix || DEFAULT_CONFIG.whatsapp_pix
-        window.open(`https://wa.me/${numero}?text=${encodeURIComponent(buildPixMsg())}`, '_blank')
-      }
-
-      onClose()
-
-    } catch (err) {
-      if (err.message === 'JÁ_PAGO') {
-        alert('⚠️ Este extra já foi pago em outro dispositivo.')
-        onClose()
-      } else {
-        alert('Erro ao registrar pagamento. Tente novamente.')
-        console.error(err)
-      }
-    }
-  }
-
-  if (step === 'assinatura') return (
-    <Modal title="Assinatura" onClose={onClose}>
-      <div style={{ marginBottom: 12 }}><div style={{ fontWeight: 600 }}>{extra.nome}</div><div style={{ fontSize: 13, color: '#8a7355' }}>{fmt(valorCents)} · {forma === 'pix' ? 'Pix' : 'Dinheiro'}</div></div>
-      <SignaturePad onSave={sig => { setAssinatura(sig); setStep('escolha') }} onCancel={() => setStep('escolha')} />
-    </Modal>
-  )
-
-  return (
-    <Modal title="Efetuar Pagamento" onClose={onClose}>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-
-        {/* Info do extra */}
-        <div style={{ ...S.card, background: '#f5f0e8' }}>
-          <div style={{ fontWeight: 700, fontSize: 16 }}>{extra.nome}</div>
-          <div style={{ fontSize: 13, color: '#8a7355' }}>{extra.funcao}{extra.turnos ? ' · ' + extra.turnos : ''}</div>
-          <div style={{ fontSize: 20, fontWeight: 700, color: '#c9a96e' }}>{fmt(valorBase)}</div>
-        </div>
-
-        {/* Trocos pendentes */}
-        {trocos.length > 0 && (
-          <div style={{ background: '#fff5f5', border: '1px solid #fecaca', borderRadius: 10, padding: 12 }}>
-            <div style={{ fontSize: 12, fontWeight: 700, color: '#ef4444', marginBottom: 8 }}>
-              🔴 Trocos a descontar (opcional)
-            </div>
-            {trocos.map((t, i) => {
-              const sel = !!trocosSelecionados.find(s => s.data === t.data && s.valor === t.valor)
-              return (
-                <div key={i} onClick={() => toggleTroco(t)}
-                  style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '6px 0', borderBottom: i < trocos.length - 1 ? '1px solid #fee2e2' : 'none', cursor: 'pointer' }}>
-                  <div style={{ width: 18, height: 18, borderRadius: 4, border: `2px solid ${sel ? '#ef4444' : '#fca5a5'}`, background: sel ? '#ef4444' : '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                    {sel && <span style={{ color: '#fff', fontSize: 12, fontWeight: 700 }}>✓</span>}
-                  </div>
-                  <div style={{ flex: 1 }}>
-                    <div style={{ fontSize: 13, color: '#b91c1c', fontWeight: 600 }}>−{fmt(t.valor)}</div>
-                    <div style={{ fontSize: 11, color: '#ef4444' }}>{dayLabel(t.data)}</div>
-                  </div>
-                </div>
-              )
-            })}
-            {trocosSelecionados.length > 0 && (
-              <div style={{ marginTop: 8, fontSize: 12, color: '#b91c1c', fontWeight: 600, textAlign: 'right' }}>
-                Total a descontar: −{fmt(totalTrocoSel)} → Sugerido: {fmt(valorSugerido)}
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* Forma de pagamento */}
-        <div style={{ display: 'flex', gap: 8 }}>
-          <button onClick={() => setForma('dinheiro')} style={{ flex: 1, padding: '12px', border: `2px solid ${forma === 'dinheiro' ? '#22c55e' : '#e0d5c5'}`, borderRadius: 10, background: forma === 'dinheiro' ? '#22c55e20' : '#fff', cursor: 'pointer', fontSize: 13, fontWeight: 700, color: forma === 'dinheiro' ? '#22c55e' : '#999' }}>💵 Dinheiro</button>
-          <button onClick={() => setForma('pix')} style={{ flex: 1, padding: '12px', border: `2px solid ${forma === 'pix' ? '#3b82f6' : '#e0d5c5'}`, borderRadius: 10, background: forma === 'pix' ? '#3b82f620' : '#fff', cursor: 'pointer', fontSize: 13, fontWeight: 700, color: forma === 'pix' ? '#3b82f6' : '#999' }}>📱 Pix</button>
-        </div>
-
-        {/* Valor pago */}
-        <div>
-          <label style={S.label}>Valor a pagar</label>
-          <input value={valorDisplay}
-            onChange={e => { const r = e.target.value.replace(/\D/g, ''); setValorDisplay(r ? fmt(parseInt(r)) : '') }}
-            style={{ ...S.input, fontSize: 18, fontWeight: 700 }} inputMode="numeric" />
-          {parseCents(valorDisplay) > valorBase && (
-            <div style={{ fontSize: 11, color: '#ef4444', marginTop: 4, fontWeight: 600 }}>
-              ⚠ Pagando {fmt(parseCents(valorDisplay) - valorBase)} a mais → vai gerar troco para próximo pagamento
-            </div>
-          )}
-        </div>
-
-        {/* Dados Pix */}
-        {forma === 'pix' && pessoa && (
-          <div style={{ ...S.card, background: '#eff6ff', border: '1px solid #bfdbfe' }}>
-            <div style={{ fontSize: 12, color: '#1e40af', fontWeight: 600, marginBottom: 4 }}>Dados do Pix</div>
-            <div style={{ fontSize: 13 }}><strong>Tipo:</strong> {pessoa.tipo_pix}</div>
-            <div style={{ fontSize: 13 }}><strong>Chave:</strong> {pessoa.chave_pix}</div>
-            <div style={{ fontSize: 11, color: '#64748b', marginTop: 4 }}>WhatsApp: {config?.whatsapp_pix}</div>
-          </div>
-        )}
-
-        {/* Assinatura */}
-        <div><label style={S.label}>Assinatura</label>
-          {assinatura
-            ? <div><img src={assinatura} alt="Assinatura" style={{ width: '100%', border: '1px solid #e0d5c5', borderRadius: 8 }} /><button onClick={() => setAssinatura(null)} style={{ background: 'none', border: 'none', color: '#999', fontSize: 12, cursor: 'pointer' }}>Refazer</button></div>
-            : <button onClick={() => setStep('assinatura')} style={S.btn('#8a7355')}>✍️ Coletar Assinatura</button>}
-        </div>
-
-        <div style={{ display: 'flex', gap: 8 }}>
-          <button onClick={onClose} style={S.btn('#999')}>Cancelar</button>
-          <button onClick={finalizar} style={{ ...S.btn(forma === 'pix' ? '#3b82f6' : '#22c55e'), flex: 2, fontWeight: 700 }}>
-            {forma === 'pix' ? '📱 Enviar Pix' : '✓ Confirmar'}
-          </button>
-        </div>
-      </div>
-    </Modal>
-  )
-}
-
-// ─── ABA LANÇAMENTOS ──────────────────────────────────────────────────────────
-
-function TabLancamentos({ store, today }) {
-  const { extras, updateExtra } = store
-  const todayExtras = extras.filter(e => e.data_op === today)
-  const [copied, setCopied] = useState({})
-  const getText = (e) => `EXTRA ${e.nome} ${e.funcao}${e.turnos ? ' ' + e.turnos : ''}`
-  const copy = async (e) => {
-    try { await navigator.clipboard.writeText(getText(e)) } catch { }
-    setCopied(p => ({ ...p, [e.id]: true }))
-    setTimeout(() => setCopied(p => ({ ...p, [e.id]: false })), 2000)
-  }
-  return (
-    <div>
-      <div style={{ ...S.card, background: '#f5f0e8', marginBottom: 12 }}><div style={{ fontSize: 13, color: '#8a7355' }}>Copie o texto e cole no sistema interno. O valor deve ser lançado manualmente.</div></div>
-      {todayExtras.length === 0 && <div style={{ ...S.card, textAlign: 'center', padding: 32, color: '#999' }}><div style={{ fontSize: 32 }}>📋</div><div>Nenhum extra hoje</div></div>}
-      {todayExtras.map(e => (
-        <div key={e.id} style={S.card}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <div>
-              <div style={{ fontFamily: 'monospace', fontSize: 14, color: '#2d2d2d' }}>{getText(e)}</div>
-              <div style={{ fontSize: 12, color: '#999', marginTop: 2 }}>{fmt(e.valor_final)} · {e.pago ? (e.forma_pagamento === 'pix' ? '📱 Pix' : '💵 Dinheiro') : '⏳ Pendente'}</div>
-              {(e.trocos_descontados || []).length > 0 && (
-                <div style={{ fontSize: 11, color: '#ef4444' }}>Troco descontado: −{fmt(e.trocos_descontados.reduce((a, t) => a + t.valor, 0))}</div>
-              )}
-              {e.troco_gerado > 0 && (
-                <div style={{ fontSize: 11, color: '#f59e0b' }}>Troco gerado: +{fmt(e.troco_gerado)}</div>
-              )}
-            </div>
-            <div style={{ display: 'flex', gap: 6 }}>
-              <button onClick={() => copy(e)} style={{ ...S.btn(copied[e.id] ? '#22c55e' : '#c9a96e'), flex: 'none', padding: '8px 12px' }}>{copied[e.id] ? '✓' : '📋'}</button>
-              <button onClick={() => updateExtra(e.id, { lancado: !e.lancado })} style={{ ...S.btn(e.lancado ? '#22c55e' : '#e0d5c5'), flex: 'none', padding: '8px 12px', color: e.lancado ? '#fff' : '#666' }}>{e.lancado ? '✓' : '○'}</button>
-            </div>
-          </div>
-          {e.pago && <div style={{ marginTop: 6 }}>{e.lancado ? <Badge color="#22c55e">✓ Lançado</Badge> : <Badge color="#f59e0b">Não lançado</Badge>}</div>}
-        </div>
-      ))}
-    </div>
-  )
-}
-
-// ─── ABA RELATÓRIOS ───────────────────────────────────────────────────────────
-
-function TabRelatorios({ store }) {
-  const { extras, pessoas, setores, config } = store
-  const [filtro, setFiltro] = useState('hoje')
-  const [subTab, setSubTab] = useState('resumo')
-  const today = todayOp(config)
-  const ontem = toDateStr(new Date(new Date(today + 'T12:00:00').getTime() - 86400000))
-  const weekStart = toDateStr(new Date(new Date(today + 'T12:00:00').setDate(new Date(today + 'T12:00:00').getDate() - new Date(today + 'T12:00:00').getDay())))
-  const monthStart = today.slice(0, 7) + '-01'
-  const ranges = { hoje: [today, today], ontem: [ontem, ontem], semana: [weekStart, today], mes: [monthStart, today] }
-  const [from, to] = ranges[filtro] || [today, today]
-  const filtered = extras.filter(e => e.data_op >= from && e.data_op <= to && e.pago)
-  const total = filtered.reduce((a, e) => a + e.valor_final, 0)
-  const totalPix = filtered.filter(e => e.forma_pagamento === 'pix').reduce((a, e) => a + e.valor_final, 0)
-  const totalDin = filtered.filter(e => e.forma_pagamento === 'dinheiro').reduce((a, e) => a + e.valor_final, 0)
-  const porSetor = setores.map(s => ({ nome: s.nome, total: filtered.filter(e => e.setor_id === s.id).reduce((a, e) => a + e.valor_final, 0), qtd: filtered.filter(e => e.setor_id === s.id).length })).filter(s => s.qtd > 0).sort((a, b) => b.total - a.total)
-  const porPessoa = pessoas.map(p => ({
-    nome: p.nome,
-    total: filtered.filter(e => e.pessoa_id === p.id).reduce((a, e) => a + e.valor_final, 0),
-    qtd: filtered.filter(e => e.pessoa_id === p.id).length,
-    trocos: totalTrocos(p.trocos),
-    historico_trocos: p.trocos || [],
-  })).filter(p => p.qtd > 0).sort((a, b) => b.total - a.total)
-
-  return (
-    <div>
-      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 12 }}>
-        {['hoje', 'ontem', 'semana', 'mes'].map(f => (
-          <button key={f} onClick={() => setFiltro(f)} style={{ padding: '6px 12px', border: `2px solid ${filtro === f ? '#c9a96e' : '#e0d5c5'}`, borderRadius: 20, background: filtro === f ? '#c9a96e' : '#fff', color: filtro === f ? '#fff' : '#666', fontSize: 12, fontWeight: filtro === f ? 700 : 400, cursor: 'pointer' }}>
-            {f.charAt(0).toUpperCase() + f.slice(1)}
-          </button>
-        ))}
-      </div>
-      <div style={{ display: 'flex', gap: 4, background: '#f0e8d8', padding: 4, borderRadius: 10, marginBottom: 12 }}>
-        {['resumo', 'setor', 'funcionário'].map(t => (
-          <button key={t} onClick={() => setSubTab(t)} style={{ flex: 1, padding: '8px 4px', border: 'none', borderRadius: 8, background: subTab === t ? '#fff' : 'transparent', cursor: 'pointer', fontSize: 12, fontWeight: subTab === t ? 700 : 400, color: subTab === t ? '#c9a96e' : '#999' }}>
-            {t.charAt(0).toUpperCase() + t.slice(1)}
-          </button>
-        ))}
-      </div>
-      {subTab === 'resumo' && <>
-        <div style={{ ...S.card, background: 'linear-gradient(135deg,#1a1a2e,#2d2340)', color: '#fff' }}>
-          <div style={{ fontSize: 11, color: '#c9a96e60', textTransform: 'uppercase' }}>Total</div>
-          <div style={{ fontSize: 32, fontWeight: 700, color: '#c9a96e' }}>{fmt(total)}</div>
-          <div style={{ fontSize: 12, color: '#ffffff60' }}>{filtered.length} pagamentos</div>
-        </div>
-        <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
-          <div style={{ ...S.card, flex: 1, textAlign: 'center', margin: 0 }}><div style={{ fontSize: 11, color: '#22c55e' }}>💵</div><div style={{ fontSize: 18, fontWeight: 700 }}>{fmt(totalDin)}</div></div>
-          <div style={{ ...S.card, flex: 1, textAlign: 'center', margin: 0 }}><div style={{ fontSize: 11, color: '#3b82f6' }}>📱</div><div style={{ fontSize: 18, fontWeight: 700 }}>{fmt(totalPix)}</div></div>
-        </div>
-        {filtered.slice(-10).reverse().map(e => {
-          const setor = setores.find(s => s.id === e.setor_id)
-          return <div key={e.id} style={{ ...S.card, padding: '10px 14px' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-              <div>
-                <div style={{ fontWeight: 600, fontSize: 14 }}>{e.nome}</div>
-                <div style={{ fontSize: 11, color: '#8a7355' }}>{e.funcao}{setor ? ' · ' + setor.nome : ''} · {dayLabel(e.data_op)}</div>
-                {e.troco_gerado > 0 && <div style={{ fontSize: 11, color: '#f59e0b' }}>Troco gerado: +{fmt(e.troco_gerado)}</div>}
-                {(e.trocos_descontados || []).length > 0 && <div style={{ fontSize: 11, color: '#22c55e' }}>Desconto aplicado: −{fmt(e.trocos_descontados.reduce((a, t) => a + t.valor, 0))}</div>}
-              </div>
-              <div style={{ textAlign: 'right' }}><div style={{ fontSize: 15, fontWeight: 700, color: '#c9a96e' }}>{fmt(e.valor_final)}</div>{e.forma_pagamento === 'pix' ? <Badge color="#3b82f6">Pix</Badge> : <Badge color="#22c55e">Din</Badge>}</div>
-            </div>
-          </div>
-        })}
-      </>}
-      {subTab === 'setor' && <>
-        {porSetor.length === 0 && <div style={{ ...S.card, textAlign: 'center', padding: 32, color: '#999' }}>Sem dados</div>}
-        {porSetor.map(s => <div key={s.nome} style={S.card}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <div><div style={{ fontWeight: 700 }}>{s.nome}</div><div style={{ fontSize: 12, color: '#999' }}>{s.qtd} extras</div></div>
-            <div style={{ fontSize: 20, fontWeight: 700, color: '#c9a96e' }}>{fmt(s.total)}</div>
-          </div>
-          <div style={{ marginTop: 8, height: 4, background: '#f0e8d8', borderRadius: 2 }}><div style={{ height: '100%', background: '#c9a96e', borderRadius: 2, width: total ? ((s.total / total) * 100) + '%' : '0%' }} /></div>
-        </div>)}
-      </>}
-      {subTab === 'funcionário' && <>
-        {porPessoa.length === 0 && <div style={{ ...S.card, textAlign: 'center', padding: 32, color: '#999' }}>Sem dados</div>}
-        {porPessoa.map((p, i) => <div key={p.nome} style={S.card}>
-          <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-            <div>
-              <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}><span style={{ fontSize: 16, fontWeight: 800, color: '#c9a96e' }}>#{i + 1}</span><span style={{ fontWeight: 700 }}>{p.nome}</span></div>
-              <div style={{ fontSize: 12, color: '#999' }}>{p.qtd} extras · Média: {fmt(p.qtd ? Math.round(p.total / p.qtd) : 0)}</div>
-              {p.trocos > 0 && (
-                <div style={{ marginTop: 4 }}>
-                  <div style={{ fontSize: 11, color: '#ef4444', fontWeight: 600 }}>🔴 Troco pendente: {fmt(p.trocos)}</div>
-                  {p.historico_trocos.map((t, j) => (
-                    <div key={j} style={{ fontSize: 11, color: '#ef4444', marginLeft: 8 }}>• {dayLabel(t.data)}: {fmt(t.valor)}</div>
-                  ))}
-                </div>
-              )}
-            </div>
-            <div style={{ fontSize: 20, fontWeight: 700, color: '#c9a96e' }}>{fmt(p.total)}</div>
-          </div>
-        </div>)}
-      </>}
-    </div>
-  )
-}
-
-// ─── MODAL ADICIONAR PESSOA ───────────────────────────────────────────────────
-
-function ModalAddPessoa({ store, onClose }) {
-  const { addPessoa, setores } = store
-  const [nome, setNome] = useState('')
-  const [funcao, setFuncao] = useState('')
-  const [tel, setTel] = useState('')
-  const [setorId, setSetorId] = useState('')
-  const [valSQ, setValSQ] = useState('')
-  const [valSD, setValSD] = useState('')
-  const [tipoPix, setTipoPix] = useState('CPF')
-  const [chavePix, setChavePix] = useState('')
-
-  const save = async () => {
-    if (!nome.trim()) return alert('Nome obrigatório')
-    await addPessoa({ nome: nome.trim(), funcao, telefone: tel, setor_id: setorId, val_seg_qui: parseCents(valSQ), val_sex_dom: parseCents(valSD), tipo_pix: tipoPix, chave_pix: chavePix.trim() })
-    onClose()
-  }
-
-  return (
-    <Modal title="Nova Pessoa" onClose={onClose}>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-        <div><label style={S.label}>Nome *</label><input value={nome} onChange={e => setNome(e.target.value)} style={S.input} /></div>
-        <div><label style={S.label}>Telefone WhatsApp</label><input value={tel} onChange={e => setTel(e.target.value)} style={S.input} placeholder="18999999999" inputMode="numeric" /></div>
-        <div style={{ display: 'flex', gap: 8 }}>
-          <div style={{ flex: 1 }}><label style={S.label}>Função</label><input value={funcao} onChange={e => setFuncao(e.target.value)} style={S.input} /></div>
-          <div style={{ flex: 1 }}><label style={S.label}>Setor</label>
-            <select value={setorId} onChange={e => setSetorId(e.target.value)} style={S.input}>
-              <option value="">—</option>
-              {setores.filter(s => s.ativo).map(s => <option key={s.id} value={s.id}>{s.nome}</option>)}
-            </select>
-          </div>
-        </div>
-        <div style={{ display: 'flex', gap: 8 }}>
-          <div style={{ flex: 1 }}><label style={S.label}>Seg-Qui</label><input value={valSQ} onChange={e => { const r = e.target.value.replace(/\D/g, ''); setValSQ(r ? fmt(parseInt(r)) : '') }} style={S.input} placeholder="R$ 0,00" inputMode="numeric" /></div>
-          <div style={{ flex: 1 }}><label style={S.label}>Sex-Dom</label><input value={valSD} onChange={e => { const r = e.target.value.replace(/\D/g, ''); setValSD(r ? fmt(parseInt(r)) : '') }} style={S.input} placeholder="R$ 0,00" inputMode="numeric" /></div>
-        </div>
-        <div style={{ display: 'flex', gap: 8 }}>
-          <div style={{ flex: 1 }}><label style={S.label}>Tipo Pix</label>
-            <select value={tipoPix} onChange={e => setTipoPix(e.target.value)} style={S.input}>
-              {['CPF', 'Telefone', 'E-mail', 'Aleatória'].map(t => <option key={t}>{t}</option>)}
-            </select>
-          </div>
-          <div style={{ flex: 2 }}><label style={S.label}>Chave Pix</label><input value={chavePix} onChange={e => setChavePix(e.target.value)} style={S.input} /></div>
-        </div>
-        <div style={{ display: 'flex', gap: 8 }}>
-          <button onClick={onClose} style={S.btn('#999')}>Cancelar</button>
-          <button onClick={save} style={{ ...S.btn('#c9a96e'), flex: 2, fontWeight: 700 }}>Salvar</button>
-        </div>
-      </div>
-    </Modal>
-  )
-}
-
-// ─── MODAL EDITAR PESSOA ──────────────────────────────────────────────────────
-
-function ModalEditPessoa({ store, pessoa, onClose }) {
-  const { updatePessoa, setores } = store
-  const [nome, setNome] = useState(pessoa.nome)
-  const [funcao, setFuncao] = useState(pessoa.funcao || '')
-  const [tel, setTel] = useState(pessoa.telefone || '')
-  const [setorId, setSetorId] = useState(pessoa.setor_id || '')
-  const [valSQ, setValSQ] = useState(fmt(pessoa.val_seg_qui || 0))
-  const [valSD, setValSD] = useState(fmt(pessoa.val_sex_dom || 0))
-  const [tipoPix, setTipoPix] = useState(pessoa.tipo_pix || 'CPF')
-  const [chavePix, setChavePix] = useState(pessoa.chave_pix || '')
-
-  const save = async () => {
-    if (!nome.trim()) return alert('Nome obrigatório')
-    await updatePessoa(pessoa.id, { nome: nome.trim(), funcao, telefone: tel, setor_id: setorId, val_seg_qui: parseCents(valSQ), val_sex_dom: parseCents(valSD), tipo_pix: tipoPix, chave_pix: chavePix.trim() })
-    onClose()
-  }
-
-  return (
-    <Modal title="Editar Pessoa" onClose={onClose}>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-        <div><label style={S.label}>Nome *</label><input value={nome} onChange={e => setNome(e.target.value)} style={S.input} /></div>
-        <div><label style={S.label}>Telefone WhatsApp</label><input value={tel} onChange={e => setTel(e.target.value)} style={S.input} placeholder="18999999999" inputMode="numeric" /></div>
-        <div style={{ display: 'flex', gap: 8 }}>
-          <div style={{ flex: 1 }}><label style={S.label}>Função</label><input value={funcao} onChange={e => setFuncao(e.target.value)} style={S.input} /></div>
-          <div style={{ flex: 1 }}><label style={S.label}>Setor</label>
-            <select value={setorId} onChange={e => setSetorId(e.target.value)} style={S.input}>
-              <option value="">—</option>
-              {setores.filter(s => s.ativo).map(s => <option key={s.id} value={s.id}>{s.nome}</option>)}
-            </select>
-          </div>
-        </div>
-        <div style={{ display: 'flex', gap: 8 }}>
-          <div style={{ flex: 1 }}><label style={S.label}>Seg-Qui</label><input value={valSQ} onChange={e => { const r = e.target.value.replace(/\D/g, ''); setValSQ(r ? fmt(parseInt(r)) : '') }} style={S.input} placeholder="R$ 0,00" inputMode="numeric" /></div>
-          <div style={{ flex: 1 }}><label style={S.label}>Sex-Dom</label><input value={valSD} onChange={e => { const r = e.target.value.replace(/\D/g, ''); setValSD(r ? fmt(parseInt(r)) : '') }} style={S.input} placeholder="R$ 0,00" inputMode="numeric" /></div>
-        </div>
-        <div style={{ display: 'flex', gap: 8 }}>
-          <div style={{ flex: 1 }}><label style={S.label}>Tipo Pix</label>
-            <select value={tipoPix} onChange={e => setTipoPix(e.target.value)} style={S.input}>
-              {['CPF', 'Telefone', 'E-mail', 'Aleatória'].map(t => <option key={t}>{t}</option>)}
-            </select>
-          </div>
-          <div style={{ flex: 2 }}><label style={S.label}>Chave Pix</label><input value={chavePix} onChange={e => setChavePix(e.target.value)} style={S.input} /></div>
-        </div>
-        <div style={{ display: 'flex', gap: 8 }}>
-          <button onClick={onClose} style={S.btn('#999')}>Cancelar</button>
-          <button onClick={save} style={{ ...S.btn('#c9a96e'), flex: 2, fontWeight: 700 }}>Salvar</button>
-        </div>
-      </div>
-    </Modal>
-  )
-}
-
-// ─── ABA CONFIG ───────────────────────────────────────────────────────────────
-
-function TabConfig({ store, setModal }) {
-  const { setores, addSetor, updateSetor, removeSetor, pessoas, removePessoa, config, updateConfig } = store
-  const [novoSetor, setNovoSetor] = useState('')
-  const [nomeEstab, setNomeEstab] = useState(config.nome_estabelecimento)
-  const [whatsapp, setWhatsapp] = useState(config.whatsapp_pix)
-  const [horaVirada, setHoraVirada] = useState(String(config.horario_virada_h).padStart(2, '0'))
-  const [minVirada, setMinVirada] = useState(String(config.horario_virada_m).padStart(2, '0'))
-  const [savedMsg, setSavedMsg] = useState('')
-
-  const salvarGeral = () => {
-    updateConfig({
-      nome_estabelecimento: nomeEstab.trim() || 'ARACÁ GRILL',
-      whatsapp_pix: whatsapp.replace(/\D/g, ''),
-      horario_virada_h: parseInt(horaVirada) || 2,
-      horario_virada_m: parseInt(minVirada) || 30,
-    })
-    setSavedMsg('✓ Salvo!')
-    setTimeout(() => setSavedMsg(''), 2500)
-  }
-
-  return (
-    <div>
-      <div style={S.card}>
-        <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 14 }}>🏠 Estabelecimento</div>
-        <div style={{ marginBottom: 10 }}>
-          <label style={S.label}>Nome do estabelecimento</label>
-          <input value={nomeEstab} onChange={e => setNomeEstab(e.target.value)} style={S.input} placeholder="Ex: ARACÁ GRILL" />
-        </div>
-        <div style={{ marginBottom: 10 }}>
-          <label style={S.label}>WhatsApp para envio do Pix</label>
-          <input value={whatsapp} onChange={e => setWhatsapp(e.target.value)} style={S.input} placeholder="5518999999999" inputMode="numeric" />
-          <div style={{ fontSize: 11, color: '#999', marginTop: 4 }}>Com DDI+DDD, sem espaços. Ex: 5518996530959</div>
-        </div>
-        <div style={{ marginBottom: 14 }}>
-          <label style={S.label}>Horário de virada do dia operacional</label>
-          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-            <input value={horaVirada} onChange={e => setHoraVirada(e.target.value)} style={{ ...S.input, width: 64, textAlign: 'center' }} placeholder="02" inputMode="numeric" maxLength={2} />
-            <span style={{ fontWeight: 700, color: '#8a7355' }}>:</span>
-            <input value={minVirada} onChange={e => setMinVirada(e.target.value)} style={{ ...S.input, width: 64, textAlign: 'center' }} placeholder="30" inputMode="numeric" maxLength={2} />
-            <span style={{ fontSize: 12, color: '#999' }}>horas</span>
-          </div>
-          <div style={{ fontSize: 11, color: '#999', marginTop: 4 }}>Antes desse horário o sistema usa a data do dia anterior.</div>
-        </div>
-        <button onClick={salvarGeral} style={{ ...S.btn(savedMsg ? '#22c55e' : '#c9a96e'), fontWeight: 700 }}>
-          {savedMsg || 'Salvar configurações'}
-        </button>
-      </div>
-
-      <div style={S.card}>
-        <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 12 }}>📁 Setores</div>
-        {setores.map(s => (
-          <div key={s.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 0', borderBottom: '1px solid #f0e8d8' }}>
-            <span style={{ fontSize: 14 }}>{s.nome}</span>
-            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-              <button onClick={() => updateSetor(s.id, { ativo: !s.ativo })}
-                style={{ background: 'none', border: `1px solid ${s.ativo ? '#22c55e' : '#ccc'}`, borderRadius: 6, padding: '3px 10px', fontSize: 11, color: s.ativo ? '#22c55e' : '#999', cursor: 'pointer', fontWeight: 600 }}>
-                {s.ativo ? 'Ativo' : 'Inativo'}
-              </button>
-              <button onClick={() => { if (confirm('Remover setor ' + s.nome + '?')) removeSetor(s.id) }}
-                style={{ background: 'none', border: 'none', color: '#ef4444', fontSize: 16, cursor: 'pointer' }}>🗑</button>
-            </div>
-          </div>
-        ))}
-        <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
-          <input value={novoSetor} onChange={e => setNovoSetor(e.target.value)} style={{ ...S.input, flex: 1 }} placeholder="Novo setor..." />
-          <button onClick={() => { if (novoSetor.trim()) { addSetor({ nome: novoSetor.trim(), ativo: true }); setNovoSetor('') } }}
-            style={{ ...S.btn('#c9a96e'), flex: 'none', padding: '10px 18px' }}>+</button>
-        </div>
-      </div>
-
-      <div style={S.card}>
-        <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 12 }}>👥 Pessoas ({pessoas.length})</div>
-        {pessoas.length === 0 && <div style={{ fontSize: 13, color: '#999', textAlign: 'center', padding: 16 }}>Nenhuma pessoa cadastrada</div>}
-        {pessoas.map(p => (
-          <div key={p.id} style={{ padding: '10px 0', borderBottom: '1px solid #f0e8d8' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-              <div>
-                <div style={{ fontWeight: 600, fontSize: 14 }}>{p.nome}</div>
-                <div style={{ fontSize: 12, color: '#8a7355' }}>{p.funcao}</div>
-                <div style={{ fontSize: 12, color: '#8a7355' }}>Seg-Qui: {fmt(p.val_seg_qui)} · Sex-Dom: {fmt(p.val_sex_dom)}</div>
-                <div style={{ fontSize: 12, color: '#64748b' }}>{p.tipo_pix}: {p.chave_pix}</div>
-                {p.telefone ? <div style={{ fontSize: 12, color: '#3b82f6' }}>📱 {p.telefone}</div> : null}
-                {totalTrocos(p.trocos) > 0 && (
-                  <div style={{ fontSize: 11, color: '#ef4444', fontWeight: 600, marginTop: 2 }}>
-                    🔴 Troco pendente: {fmt(totalTrocos(p.trocos))}
-                    {(p.trocos || []).map((t, i) => (
-                      <span key={i} style={{ display: 'block', marginLeft: 8, fontWeight: 400 }}>• {dayLabel(t.data)}: {fmt(t.valor)}</span>
-                    ))}
-                  </div>
-                )}
-              </div>
-              <div style={{ display: 'flex', gap: 6 }}>
-                <button onClick={() => setModal({ type: 'editPessoa', pessoa: p })}
-                  style={{ background: 'none', border: '1px solid #c9a96e', borderRadius: 6, padding: '4px 10px', fontSize: 12, color: '#c9a96e', cursor: 'pointer' }}>✏️</button>
-                <button onClick={() => { if (confirm('Remover ' + p.nome + '?')) removePessoa(p.id) }}
-                  style={{ background: 'none', border: 'none', color: '#ef4444', fontSize: 18, cursor: 'pointer' }}>🗑</button>
-              </div>
-            </div>
-          </div>
-        ))}
-        <button onClick={() => setModal({ type: 'addPessoa' })} style={{ ...S.btn('#6e7c8a'), marginTop: 12 }}>+ Nova Pessoa</button>
-      </div>
-
-      <div style={{ ...S.card, background: '#fef3c7', border: '1px solid #f59e0b' }}>
-        <div style={{ fontSize: 12, color: '#92400e', fontWeight: 700 }}>ℹ️ {config.nome_estabelecimento} v1.2</div>
-        <div style={{ fontSize: 12, color: '#92400e80' }}>Sistema operacional de extras · Firebase Firestore</div>
-      </div>
-    </div>
-  )
-}
+    const ontem
