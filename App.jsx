@@ -1301,8 +1301,7 @@ function exportarExcel(pagos, pessoas, setores, config, from, to) {
   rows.push(['Total Dinheiro','','','','','','',fmt2(totalDin),'','',''])
   rows.push(['Total Pix','','','','','','',fmt2(totalPix),'','',''])
 
-  const csv = rows.map(r => r.map(c => `"${String(c).replace(/"/g,'""')}"`).join(';')).join('
-')
+  const csv = rows.map(r => r.map(c => `"${String(c).replace(/"/g,'""')}"`).join(';')).join('\n')
   const bom = '﻿' // BOM para Excel reconhecer UTF-8
   const blob = new Blob([bom + csv], { type: 'text/csv;charset=utf-8' })
   const url = URL.createObjectURL(blob)
