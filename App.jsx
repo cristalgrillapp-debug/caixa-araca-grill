@@ -1,7 +1,7 @@
 import { imprimirRecibos } from './impressao'
 import { useState, useEffect, useRef, useMemo } from 'react'
 import { db } from './firebase'
-import { collection, addDoc, updateDoc, setDoc, doc, onSnapshot, deleteDoc, runTransaction, getDoc, query, where, orderBy, limit } from 'firebase/firestore'
+import { collection, addDoc, updateDoc, setDoc, doc, onSnapshot, deleteDoc, runTransaction, getDoc, query, where, orderBy, limit, getDocs } from 'firebase/firestore'
 
 const fmt = (cents) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format((cents || 0) / 100)
 const parseCents = (str) => parseInt(String(str).replace(/\D/g, '') || '0', 10)
@@ -41,6 +41,19 @@ const calcNotes = (cents) => {
 
 // trocos: [{ data, valor, descricao }]
 const totalTrocos = (trocos) => (trocos || []).reduce((a, t) => a + t.valor, 0)
+
+// Hash simples para senha (não use em sistemas bancários, ok para uso interno)
+async function hashSenha(senha) {
+  const encoder = new TextEncoder()
+  const data = encoder.encode(senha + 'araca_salt_2024')
+  const hash = await crypto.subtle.digest('SHA-256', data)
+  return Array.from(new Uint8Array(hash)).map(b => b.toString(16).padStart(2, '0')).join('')
+}
+
+const AUTH_KEY = 'araca_usuario_logado'
+const getUsuarioLogado = () => { try { const s = sessionStorage.getItem(AUTH_KEY); return s ? JSON.parse(s) : null } catch { return null } }
+const setUsuarioLogado = (u) => { try { sessionStorage.setItem(AUTH_KEY, JSON.stringify(u)) } catch {} }
+const logoutUsuario = () => { try { sessionStorage.removeItem(AUTH_KEY) } catch {} }
 
 // Comprime a assinatura para ~3kb antes de salvar no Firestore
 function comprimirAssinatura(base64DataUrl) {
@@ -126,6 +139,17 @@ const SignaturePad = ({ onSave, onCancel }) => {
 }
 
 export default function App() {
+  const [usuario, setUsuario] = useState(getUsuarioLogado)
+
+  const handleLogin = (u) => { setUsuarioLogado(u); setUsuario(u) }
+  const handleLogout = () => { logoutUsuario(); setUsuario(null) }
+
+  if (!usuario) return <TelaLogin onLogin={handleLogin} />
+
+  return <AppPrincipal usuario={usuario} onLogout={handleLogout} />
+}
+
+function AppPrincipal({ usuario, onLogout }) {
   const [tab, setTab] = useState('extras')
   const [extras, setExtras] = useState([])
   const [pessoas, setPessoas] = useState([])
@@ -186,14 +210,28 @@ export default function App() {
   const updateSetor = async (id, data) => await updateDoc(doc(db, 'setores', id), data)
   const removeSetor = async (id) => await deleteDoc(doc(db, 'setores', id))
 
-  const store = { extras, pessoas, setores, config, updateConfig, addExtra, updateExtra, removeExtra, addPessoa, updatePessoa, removePessoa, addSetor, updateSetor, removeSetor }
+  const registrarLog = async (acao, detalhes = {}) => {
+    try {
+      await addDoc(collection(db, 'logs'), {
+        usuario_id: usuario.id,
+        usuario_nome: usuario.nome,
+        usuario_login: usuario.usuario,
+        acao,
+        detalhes,
+        data: new Date().toISOString(),
+        data_op: today,
+      })
+    } catch (e) { console.warn('Log falhou:', e) }
+  }
+
+  const store = { extras, pessoas, setores, config, updateConfig, addExtra, updateExtra, removeExtra, addPessoa, updatePessoa, removePessoa, addSetor, updateSetor, removeSetor, usuario, onLogout, registrarLog }
 
   const tabs = [
     { id: 'extras', icon: '👤', label: 'Extras' },
     { id: 'pagamentos', icon: '💳', label: 'Pagamentos' },
     { id: 'lancamentos', icon: '📋', label: 'Lançamentos' },
     { id: 'relatorios', icon: '📊', label: 'Relatórios' },
-    { id: 'config', icon: '⚙️', label: 'Config' },
+    ...(usuario?.role === 'admin' ? [{ id: 'config', icon: '⚙️', label: 'Config' }] : []),
   ]
 
   return (
@@ -207,6 +245,8 @@ export default function App() {
           <div style={{ textAlign: 'right' }}>
             <div style={{ fontSize: 11, color: '#c9a96e80' }}>Data operacional</div>
             <div style={{ fontSize: 14, color: '#c9a96e', fontWeight: 600 }}>{dayLabel(today)}</div>
+            <div style={{ fontSize: 10, color: '#ffffff50', marginTop: 2 }}>👤 {usuario.nome}</div>
+            <button onClick={onLogout} style={{ background: 'none', border: '1px solid #ffffff30', borderRadius: 4, color: '#ffffff60', fontSize: 10, padding: '2px 6px', cursor: 'pointer', marginTop: 2 }}>Sair</button>
           </div>
         </div>
       </div>
@@ -1242,6 +1282,9 @@ function TabConfig({ store, setModal }) {
         <button onClick={() => setModal({ type: 'addPessoa' })} style={{ ...S.btn('#6e7c8a'), marginTop: 12 }}>+ Nova Pessoa</button>
       </div>
 
+      {/* Usuários */}
+      <SecaoUsuarios />
+
       {/* Assinaturas */}
       <SecaoAssinaturas store={store} />
 
@@ -1249,6 +1292,186 @@ function TabConfig({ store, setModal }) {
         <div style={{ fontSize: 12, color: '#92400e', fontWeight: 700 }}>ℹ️ {config.nome_estabelecimento} v1.2</div>
         <div style={{ fontSize: 12, color: '#92400e80' }}>Sistema operacional de extras · Firebase Firestore</div>
       </div>
+    </div>
+  )
+}
+
+
+// ─── TELA DE LOGIN ────────────────────────────────────────────────────────────
+
+function TelaLogin({ onLogin }) {
+  const [modo, setModo] = useState('login') // 'login' | 'cadastro' | 'aguardando'
+  const [login, setLogin] = useState('')
+  const [senha, setSenha] = useState('')
+  const [nome, setNome] = useState('')
+  const [erro, setErro] = useState('')
+  const [loading, setLoading] = useState(false)
+
+  const entrar = async () => {
+    if (!login.trim() || !senha.trim()) return setErro('Preencha usuário e senha.')
+    setLoading(true); setErro('')
+    try {
+      const hash = await hashSenha(senha)
+      const q = query(collection(db, 'usuarios'), where('usuario', '==', login.trim().toLowerCase()), where('senha', '==', hash))
+      const snap = await getDocs(q)
+      if (snap.empty) { setErro('Usuário ou senha incorretos.'); setLoading(false); return }
+      const u = { id: snap.docs[0].id, ...snap.docs[0].data() }
+      if (u.status === 'pendente') { setErro('Seu cadastro ainda não foi aprovado pelo administrador.'); setLoading(false); return }
+      if (u.status === 'rejeitado') { setErro('Seu acesso foi negado. Entre em contato com o administrador.'); setLoading(false); return }
+      onLogin(u)
+    } catch (e) { setErro('Erro ao conectar. Verifique sua internet.') }
+    setLoading(false)
+  }
+
+  const cadastrar = async () => {
+    if (!nome.trim() || !login.trim() || !senha.trim()) return setErro('Preencha todos os campos.')
+    if (senha.length < 4) return setErro('Senha precisa ter pelo menos 4 caracteres.')
+    setLoading(true); setErro('')
+    try {
+      // Verifica se usuário já existe
+      const q = query(collection(db, 'usuarios'), where('usuario', '==', login.trim().toLowerCase()))
+      const snap = await getDocs(q)
+      if (!snap.empty) { setErro('Esse usuário já existe. Escolha outro.'); setLoading(false); return }
+      // Verifica se é o primeiro usuário (vira admin automaticamente)
+      const todos = await getDocs(collection(db, 'usuarios'))
+      const hash = await hashSenha(senha)
+      const role = todos.empty ? 'admin' : 'operador'
+      const status = todos.empty ? 'aprovado' : 'pendente'
+      await addDoc(collection(db, 'usuarios'), {
+        nome: nome.trim(),
+        usuario: login.trim().toLowerCase(),
+        senha: hash,
+        role,
+        status,
+        criado_em: new Date().toISOString(),
+      })
+      if (todos.empty) {
+        // Primeiro usuário — loga direto
+        const snap2 = await getDocs(query(collection(db, 'usuarios'), where('usuario', '==', login.trim().toLowerCase())))
+        const u = { id: snap2.docs[0].id, ...snap2.docs[0].data() }
+        onLogin(u)
+      } else {
+        setModo('aguardando')
+      }
+    } catch (e) { setErro('Erro ao cadastrar. Tente novamente.') }
+    setLoading(false)
+  }
+
+  const S2 = {
+    tela: { minHeight: '100vh', background: 'linear-gradient(135deg,#1a1a2e,#2d2340)', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: 24, fontFamily: 'Georgia, serif' },
+    card: { background: '#fff', borderRadius: 20, padding: 28, width: '100%', maxWidth: 380, boxShadow: '0 20px 60px rgba(0,0,0,0.3)' },
+    input: { width: '100%', padding: '12px 14px', border: '1.5px solid #e0d5c5', borderRadius: 10, fontFamily: 'inherit', fontSize: 15, background: '#fefcf8', boxSizing: 'border-box', marginBottom: 12 },
+    btn: (bg) => ({ width: '100%', padding: '13px', background: bg, color: '#fff', border: 'none', borderRadius: 10, fontFamily: 'inherit', fontSize: 15, fontWeight: 700, cursor: 'pointer', marginBottom: 8 }),
+    erro: { color: '#ef4444', fontSize: 13, textAlign: 'center', marginBottom: 10 },
+    link: { color: '#c9a96e', fontSize: 13, textAlign: 'center', cursor: 'pointer', textDecoration: 'underline' },
+  }
+
+  if (modo === 'aguardando') return (
+    <div style={S2.tela}>
+      <div style={S2.card}>
+        <div style={{ textAlign: 'center', fontSize: 40, marginBottom: 12 }}>⏳</div>
+        <div style={{ fontWeight: 700, fontSize: 18, textAlign: 'center', marginBottom: 8 }}>Cadastro enviado!</div>
+        <div style={{ fontSize: 14, color: '#8a7355', textAlign: 'center', marginBottom: 20 }}>Aguarde o administrador aprovar seu acesso. Volte em breve.</div>
+        <button onClick={() => setModo('login')} style={S2.btn('#c9a96e')}>Voltar ao login</button>
+      </div>
+    </div>
+  )
+
+  return (
+    <div style={S2.tela}>
+      <div style={{ textAlign: 'center', marginBottom: 24 }}>
+        <div style={{ fontSize: 11, color: '#c9a96e', letterSpacing: '0.2em', textTransform: 'uppercase' }}>Sistema Operacional</div>
+        <div style={{ fontSize: 28, fontWeight: 700, color: '#fff' }}>ARACÁ GRILL</div>
+      </div>
+      <div style={S2.card}>
+        <div style={{ fontWeight: 700, fontSize: 18, marginBottom: 20, textAlign: 'center', color: '#1a1a2e' }}>
+          {modo === 'login' ? 'Entrar' : 'Solicitar Acesso'}
+        </div>
+        {modo === 'cadastro' && (
+          <input value={nome} onChange={e => setNome(e.target.value)} style={S2.input} placeholder="Seu nome completo" />
+        )}
+        <input value={login} onChange={e => setLogin(e.target.value)} style={S2.input} placeholder="Usuário" autoCapitalize="none" />
+        <input value={senha} onChange={e => setSenha(e.target.value)} style={S2.input} placeholder="Senha" type="password" />
+        {erro ? <div style={S2.erro}>{erro}</div> : null}
+        <button onClick={modo === 'login' ? entrar : cadastrar} disabled={loading}
+          style={S2.btn(loading ? '#ccc' : '#c9a96e')}>
+          {loading ? 'Aguarde...' : modo === 'login' ? 'Entrar' : 'Solicitar Acesso'}
+        </button>
+        <div style={S2.link} onClick={() => { setErro(''); setModo(modo === 'login' ? 'cadastro' : 'login') }}>
+          {modo === 'login' ? 'Não tenho acesso — Solicitar cadastro' : 'Já tenho cadastro — Entrar'}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ─── SEÇÃO USUÁRIOS NO CONFIG (só admin) ──────────────────────────────────────
+
+function SecaoUsuarios() {
+  const [usuarios, setUsuarios] = useState([])
+
+  useEffect(() => {
+    const unsub = onSnapshot(collection(db, 'usuarios'), s => {
+      setUsuarios(s.docs.map(d => ({ id: d.id, ...d.data() })))
+    })
+    return unsub
+  }, [])
+
+  const aprovar = async (id) => await updateDoc(doc(db, 'usuarios', id), { status: 'aprovado' })
+  const rejeitar = async (id) => await updateDoc(doc(db, 'usuarios', id), { status: 'rejeitado' })
+  const tornarAdmin = async (id) => await updateDoc(doc(db, 'usuarios', id), { role: 'admin' })
+  const remover = async (id) => { if (confirm('Remover usuário?')) await deleteDoc(doc(db, 'usuarios', id)) }
+
+  const pendentes = usuarios.filter(u => u.status === 'pendente')
+  const aprovados = usuarios.filter(u => u.status === 'aprovado')
+  const rejeitados = usuarios.filter(u => u.status === 'rejeitado')
+
+  return (
+    <div style={S.card}>
+      <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 12 }}>👥 Usuários do Sistema</div>
+
+      {pendentes.length > 0 && <>
+        <div style={{ fontSize: 12, color: '#f59e0b', fontWeight: 700, marginBottom: 6 }}>⏳ Aguardando aprovação ({pendentes.length})</div>
+        {pendentes.map(u => (
+          <div key={u.id} style={{ background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 8, padding: '10px 12px', marginBottom: 8 }}>
+            <div style={{ fontWeight: 600 }}>{u.nome}</div>
+            <div style={{ fontSize: 12, color: '#92400e' }}>@{u.usuario}</div>
+            <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
+              <button onClick={() => aprovar(u.id)} style={{ ...S.btn('#22c55e'), fontSize: 12, padding: '6px 10px' }}>✓ Aprovar</button>
+              <button onClick={() => rejeitar(u.id)} style={{ ...S.btn('#ef4444'), fontSize: 12, padding: '6px 10px' }}>✕ Rejeitar</button>
+            </div>
+          </div>
+        ))}
+      </>}
+
+      {aprovados.length > 0 && <>
+        <div style={{ fontSize: 12, color: '#22c55e', fontWeight: 700, marginBottom: 6, marginTop: 8 }}>✓ Aprovados ({aprovados.length})</div>
+        {aprovados.map(u => (
+          <div key={u.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 0', borderBottom: '1px solid #f0e8d8' }}>
+            <div>
+              <div style={{ fontWeight: 600, fontSize: 13 }}>{u.nome}</div>
+              <div style={{ fontSize: 11, color: '#8a7355' }}>@{u.usuario} · {u.role === 'admin' ? '👑 Admin' : 'Operador'}</div>
+            </div>
+            <div style={{ display: 'flex', gap: 6 }}>
+              {u.role !== 'admin' && <button onClick={() => tornarAdmin(u.id)} style={{ background: 'none', border: '1px solid #c9a96e', borderRadius: 6, padding: '3px 8px', fontSize: 10, color: '#c9a96e', cursor: 'pointer' }}>👑</button>}
+              <button onClick={() => remover(u.id)} style={{ background: 'none', border: 'none', color: '#ef4444', fontSize: 16, cursor: 'pointer' }}>🗑</button>
+            </div>
+          </div>
+        ))}
+      </>}
+
+      {rejeitados.length > 0 && <>
+        <div style={{ fontSize: 12, color: '#ef4444', fontWeight: 700, marginBottom: 6, marginTop: 8 }}>✕ Rejeitados ({rejeitados.length})</div>
+        {rejeitados.map(u => (
+          <div key={u.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 0' }}>
+            <div style={{ fontSize: 13, color: '#999' }}>{u.nome} (@{u.usuario})</div>
+            <div style={{ display: 'flex', gap: 6 }}>
+              <button onClick={() => aprovar(u.id)} style={{ background: 'none', border: '1px solid #22c55e', borderRadius: 6, padding: '3px 8px', fontSize: 10, color: '#22c55e', cursor: 'pointer' }}>Aprovar</button>
+              <button onClick={() => remover(u.id)} style={{ background: 'none', border: 'none', color: '#ef4444', fontSize: 16, cursor: 'pointer' }}>🗑</button>
+            </div>
+          </div>
+        ))}
+      </>}
     </div>
   )
 }
