@@ -2528,7 +2528,8 @@ function TabConfig({ store, setModal }) {
 // ─── MODAL EDITAR PAGAMENTO JÁ EFETUADO ──────────────────────────────────────
 
 function ModalEditarPagamento({ store, extra, onClose }) {
-  const { updateExtra, registrarLog, usuario } = store
+  const { updateExtra, registrarLog, usuario, updatePessoa, pessoas } = store
+  const pessoa = pessoas.find(p => p.id === extra.pessoa_id)
   const [valorDisplay, setValorDisplay] = useState(fmt(extra.valor_final))
   const [forma, setForma] = useState(extra.forma_pagamento || 'dinheiro')
   const [obs, setObs] = useState(extra.obs || '')
@@ -2558,11 +2559,10 @@ function ModalEditarPagamento({ store, extra, onClose }) {
     }
     await updateExtra(extra.id, alteracoes)
 
-    // Atualiza trocos do funcionário se mudou
+    // Atualiza trocos da pessoa sempre que o troco mudou
     if (pessoa && novoTroco !== trocoAnterior) {
-      const trocosFiltrados = (pessoa.trocos || []).filter(t =>
-        !(t.descricao && t.descricao.includes(dayLabel(extra.data_op)))
-      )
+      // Remove qualquer troco desta data (filtra por data, não por descrição)
+      const trocosFiltrados = (pessoa.trocos || []).filter(t => t.data !== extra.data_op)
       if (novoTroco > 0) {
         trocosFiltrados.push({ data: extra.data_op, valor: novoTroco, descricao: `Troco editado — ${dayLabel(extra.data_op)}` })
       }
