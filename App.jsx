@@ -897,21 +897,28 @@ function TabRelatorios({ store }) {
   const { extras, pessoas, setores, config } = store
   const [filtro, setFiltro] = useState('hoje')
   const [subTab, setSubTab] = useState('resumo')
+  const [pessoaSelecionada, setPessoaSelecionada] = useState(null)
   const today = todayOp(config)
   const ontem = toDateStr(new Date(new Date(today + 'T12:00:00').getTime() - 86400000))
   const weekStart = toDateStr(new Date(new Date(today + 'T12:00:00').setDate(new Date(today + 'T12:00:00').getDate() - new Date(today + 'T12:00:00').getDay())))
   const monthStart = today.slice(0, 7) + '-01'
-  const ranges = { hoje: [today, today], ontem: [ontem, ontem], semana: [weekStart, today], mes: [monthStart, today] }
+
+  // Datas livres
+  const [dataInicio, setDataInicio] = useState(today)
+  const [dataFim, setDataFim] = useState(today)
+
+  const ranges = { hoje: [today, today], ontem: [ontem, ontem], semana: [weekStart, today], mes: [monthStart, today], livre: [dataInicio, dataFim] }
   const [from, to] = ranges[filtro] || [today, today]
+
   const filtered = useMemo(() =>
     extras.filter(e => e.data_op >= from && e.data_op <= to && e.pago),
   [extras, from, to])
 
-  const total     = useMemo(() => filtered.reduce((a, e) => a + e.valor_final, 0), [filtered])
-  const totalPix  = useMemo(() => filtered.filter(e => e.forma_pagamento === 'pix').reduce((a, e) => a + e.valor_final, 0), [filtered])
-  const totalDin  = useMemo(() => filtered.filter(e => e.forma_pagamento === 'dinheiro').reduce((a, e) => a + e.valor_final, 0), [filtered])
+  const total    = useMemo(() => filtered.reduce((a, e) => a + e.valor_final, 0), [filtered])
+  const totalPix = useMemo(() => filtered.filter(e => e.forma_pagamento === 'pix').reduce((a, e) => a + e.valor_final, 0), [filtered])
+  const totalDin = useMemo(() => filtered.filter(e => e.forma_pagamento === 'dinheiro').reduce((a, e) => a + e.valor_final, 0), [filtered])
 
-  const porSetor  = useMemo(() =>
+  const porSetor = useMemo(() =>
     setores.map(s => ({
       nome:  s.nome,
       total: filtered.filter(e => e.setor_id === s.id).reduce((a, e) => a + e.valor_final, 0),
@@ -921,7 +928,10 @@ function TabRelatorios({ store }) {
 
   const porPessoa = useMemo(() =>
     pessoas.map(p => ({
+      id:               p.id,
       nome:             p.nome,
+      funcao:           p.funcao,
+      pagamentos:       filtered.filter(e => e.pessoa_id === p.id).sort((a, b) => b.data_op.localeCompare(a.data_op)),
       total:            filtered.filter(e => e.pessoa_id === p.id).reduce((a, e) => a + e.valor_final, 0),
       qtd:              filtered.filter(e => e.pessoa_id === p.id).length,
       trocos:           totalTrocos(p.trocos),
@@ -931,20 +941,40 @@ function TabRelatorios({ store }) {
 
   return (
     <div>
-      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 12 }}>
-        {['hoje', 'ontem', 'semana', 'mes'].map(f => (
-          <button key={f} onClick={() => setFiltro(f)} style={{ padding: '6px 12px', border: `2px solid ${filtro === f ? '#c9a96e' : '#e0d5c5'}`, borderRadius: 20, background: filtro === f ? '#c9a96e' : '#fff', color: filtro === f ? '#fff' : '#666', fontSize: 12, fontWeight: filtro === f ? 700 : 400, cursor: 'pointer' }}>
-            {f.charAt(0).toUpperCase() + f.slice(1)}
+      {/* Filtros rápidos */}
+      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 8 }}>
+        {[['hoje','Hoje'],['ontem','Ontem'],['semana','Semana'],['mes','Mês'],['livre','📅 Livre']].map(([f, label]) => (
+          <button key={f} onClick={() => setFiltro(f)}
+            style={{ padding: '6px 12px', border: `2px solid ${filtro === f ? '#c9a96e' : '#e0d5c5'}`, borderRadius: 20, background: filtro === f ? '#c9a96e' : '#fff', color: filtro === f ? '#fff' : '#666', fontSize: 12, fontWeight: filtro === f ? 700 : 400, cursor: 'pointer' }}>
+            {label}
           </button>
         ))}
       </div>
+
+      {/* Datas livres */}
+      {filtro === 'livre' && (
+        <div style={{ display: 'flex', gap: 8, marginBottom: 10, alignItems: 'center' }}>
+          <div style={{ flex: 1 }}>
+            <label style={S.label}>De</label>
+            <input type="date" value={dataInicio} onChange={e => setDataInicio(e.target.value)} style={S.input} />
+          </div>
+          <div style={{ flex: 1 }}>
+            <label style={S.label}>Até</label>
+            <input type="date" value={dataFim} onChange={e => setDataFim(e.target.value)} style={S.input} />
+          </div>
+        </div>
+      )}
+
+      {/* Sub abas */}
       <div style={{ display: 'flex', gap: 4, background: '#f0e8d8', padding: 4, borderRadius: 10, marginBottom: 12 }}>
         {['resumo', 'setor', 'funcionário'].map(t => (
-          <button key={t} onClick={() => setSubTab(t)} style={{ flex: 1, padding: '8px 4px', border: 'none', borderRadius: 8, background: subTab === t ? '#fff' : 'transparent', cursor: 'pointer', fontSize: 12, fontWeight: subTab === t ? 700 : 400, color: subTab === t ? '#c9a96e' : '#999' }}>
+          <button key={t} onClick={() => setSubTab(t)}
+            style={{ flex: 1, padding: '8px 4px', border: 'none', borderRadius: 8, background: subTab === t ? '#fff' : 'transparent', cursor: 'pointer', fontSize: 12, fontWeight: subTab === t ? 700 : 400, color: subTab === t ? '#c9a96e' : '#999' }}>
             {t.charAt(0).toUpperCase() + t.slice(1)}
           </button>
         ))}
       </div>
+
       {subTab === 'resumo' && <>
         <div style={{ ...S.card, background: 'linear-gradient(135deg,#1a1a2e,#2d2340)', color: '#fff' }}>
           <div style={{ fontSize: 11, color: '#c9a96e60', textTransform: 'uppercase' }}>Total</div>
@@ -955,21 +985,25 @@ function TabRelatorios({ store }) {
           <div style={{ ...S.card, flex: 1, textAlign: 'center', margin: 0 }}><div style={{ fontSize: 11, color: '#22c55e' }}>💵</div><div style={{ fontSize: 18, fontWeight: 700 }}>{fmt(totalDin)}</div></div>
           <div style={{ ...S.card, flex: 1, textAlign: 'center', margin: 0 }}><div style={{ fontSize: 11, color: '#3b82f6' }}>📱</div><div style={{ fontSize: 18, fontWeight: 700 }}>{fmt(totalPix)}</div></div>
         </div>
-        {filtered.slice(-10).reverse().map(e => {
+        {filtered.slice().sort((a,b) => b.data_op.localeCompare(a.data_op)).slice(0, 20).map(e => {
           const setor = setores.find(s => s.id === e.setor_id)
           return <div key={e.id} style={{ ...S.card, padding: '10px 14px' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between' }}>
               <div>
                 <div style={{ fontWeight: 600, fontSize: 14 }}>{e.nome}</div>
                 <div style={{ fontSize: 11, color: '#8a7355' }}>{e.funcao}{setor ? ' · ' + setor.nome : ''} · {dayLabel(e.data_op)}</div>
-                {e.troco_gerado > 0 && <div style={{ fontSize: 11, color: '#f59e0b' }}>Troco gerado: +{fmt(e.troco_gerado)}</div>}
-                {(e.trocos_descontados || []).length > 0 && <div style={{ fontSize: 11, color: '#22c55e' }}>Desconto aplicado: −{fmt(e.trocos_descontados.reduce((a, t) => a + t.valor, 0))}</div>}
+                {e.troco_gerado > 0 && <div style={{ fontSize: 11, color: '#f59e0b' }}>+{fmt(e.troco_gerado)} troco gerado</div>}
+                {(e.trocos_descontados || []).length > 0 && <div style={{ fontSize: 11, color: '#22c55e' }}>−{fmt(e.trocos_descontados.reduce((a, t) => a + t.valor, 0))} descontado</div>}
               </div>
-              <div style={{ textAlign: 'right' }}><div style={{ fontSize: 15, fontWeight: 700, color: '#c9a96e' }}>{fmt(e.valor_final)}</div>{e.forma_pagamento === 'pix' ? <Badge color="#3b82f6">Pix</Badge> : <Badge color="#22c55e">Din</Badge>}</div>
+              <div style={{ textAlign: 'right' }}>
+                <div style={{ fontSize: 15, fontWeight: 700, color: '#c9a96e' }}>{fmt(e.valor_final)}</div>
+                {e.forma_pagamento === 'pix' ? <Badge color="#3b82f6">Pix</Badge> : <Badge color="#22c55e">Din</Badge>}
+              </div>
             </div>
           </div>
         })}
       </>}
+
       {subTab === 'setor' && <>
         {porSetor.length === 0 && <div style={{ ...S.card, textAlign: 'center', padding: 32, color: '#999' }}>Sem dados</div>}
         {porSetor.map(s => <div key={s.nome} style={S.card}>
@@ -977,30 +1011,155 @@ function TabRelatorios({ store }) {
             <div><div style={{ fontWeight: 700 }}>{s.nome}</div><div style={{ fontSize: 12, color: '#999' }}>{s.qtd} extras</div></div>
             <div style={{ fontSize: 20, fontWeight: 700, color: '#c9a96e' }}>{fmt(s.total)}</div>
           </div>
-          <div style={{ marginTop: 8, height: 4, background: '#f0e8d8', borderRadius: 2 }}><div style={{ height: '100%', background: '#c9a96e', borderRadius: 2, width: total ? ((s.total / total) * 100) + '%' : '0%' }} /></div>
-        </div>)}
-      </>}
-      {subTab === 'funcionário' && <>
-        {porPessoa.length === 0 && <div style={{ ...S.card, textAlign: 'center', padding: 32, color: '#999' }}>Sem dados</div>}
-        {porPessoa.map((p, i) => <div key={p.nome} style={S.card}>
-          <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-            <div>
-              <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}><span style={{ fontSize: 16, fontWeight: 800, color: '#c9a96e' }}>#{i + 1}</span><span style={{ fontWeight: 700 }}>{p.nome}</span></div>
-              <div style={{ fontSize: 12, color: '#999' }}>{p.qtd} extras · Média: {fmt(p.qtd ? Math.round(p.total / p.qtd) : 0)}</div>
-              {p.trocos > 0 && (
-                <div style={{ marginTop: 4 }}>
-                  <div style={{ fontSize: 11, color: '#ef4444', fontWeight: 600 }}>🔴 Troco pendente: {fmt(p.trocos)}</div>
-                  {p.historico_trocos.map((t, j) => (
-                    <div key={j} style={{ fontSize: 11, color: '#ef4444', marginLeft: 8 }}>• {dayLabel(t.data)}: {fmt(t.valor)}</div>
-                  ))}
-                </div>
-              )}
-            </div>
-            <div style={{ fontSize: 20, fontWeight: 700, color: '#c9a96e' }}>{fmt(p.total)}</div>
+          <div style={{ marginTop: 8, height: 4, background: '#f0e8d8', borderRadius: 2 }}>
+            <div style={{ height: '100%', background: '#c9a96e', borderRadius: 2, width: total ? ((s.total / total) * 100) + '%' : '0%' }} />
           </div>
         </div>)}
       </>}
+
+      {subTab === 'funcionário' && <>
+        {porPessoa.length === 0 && <div style={{ ...S.card, textAlign: 'center', padding: 32, color: '#999' }}>Sem dados</div>}
+        <div style={{ fontSize: 12, color: '#8a7355', marginBottom: 8 }}>Toque num funcionário para ver o histórico completo</div>
+        {porPessoa.map((p, i) => (
+          <div key={p.nome} style={{ ...S.card, cursor: 'pointer' }} onClick={() => setPessoaSelecionada(p)}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+              <div>
+                <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                  <span style={{ fontSize: 16, fontWeight: 800, color: '#c9a96e' }}>#{i + 1}</span>
+                  <span style={{ fontWeight: 700 }}>{p.nome}</span>
+                </div>
+                <div style={{ fontSize: 12, color: '#999' }}>{p.qtd} pagamentos · Média: {fmt(p.qtd ? Math.round(p.total / p.qtd) : 0)}</div>
+                {p.trocos > 0 && <div style={{ fontSize: 11, color: '#ef4444', fontWeight: 600, marginTop: 2 }}>🔴 Troco pendente: {fmt(p.trocos)}</div>}
+              </div>
+              <div style={{ textAlign: 'right' }}>
+                <div style={{ fontSize: 20, fontWeight: 700, color: '#c9a96e' }}>{fmt(p.total)}</div>
+                <div style={{ fontSize: 11, color: '#c9a96e' }}>Ver histórico →</div>
+              </div>
+            </div>
+          </div>
+        ))}
+      </>}
+
+      {/* Modal histórico funcionário */}
+      {pessoaSelecionada && (
+        <ModalHistoricoFuncionario
+          pessoa={pessoaSelecionada}
+          from={from} to={to}
+          setores={setores}
+          config={config}
+          onClose={() => setPessoaSelecionada(null)}
+        />
+      )}
     </div>
+  )
+}
+
+function ModalHistoricoFuncionario({ pessoa, from, to, setores, config, onClose }) {
+  const totalGeral = pessoa.pagamentos.reduce((a, e) => a + e.valor_final, 0)
+  const totalDin = pessoa.pagamentos.filter(e => e.forma_pagamento === 'dinheiro').reduce((a, e) => a + e.valor_final, 0)
+  const totalPix = pessoa.pagamentos.filter(e => e.forma_pagamento === 'pix').reduce((a, e) => a + e.valor_final, 0)
+
+  const imprimir = () => {
+    const nomeEstab = config?.nome_estabelecimento || 'ARACÁ GRILL'
+    const periodoLabel = from === to ? dayLabel(from) : `${dayLabel(from)} até ${dayLabel(to)}`
+    const linhas = pessoa.pagamentos.map(e => {
+      const setor = setores.find(s => s.id === e.setor_id)
+      const desconto = (e.trocos_descontados || []).reduce((a, t) => a + t.valor, 0)
+      return `
+        <div class="linha">
+          <div class="row">
+            <span class="negrito">${dayLabel(e.data_op)}</span>
+            <span class="negrito valor">${fmt(e.valor_final)}</span>
+          </div>
+          <div class="row sub">
+            <span>${e.funcao || ''}${setor ? ' · ' + setor.nome : ''}${e.turnos ? ' · ' + e.turnos : ''}</span>
+            <span>${e.forma_pagamento === 'pix' ? '📱 Pix' : '💵 Dinheiro'}</span>
+          </div>
+          ${desconto > 0 ? `<div class="row sub"><span>Troco descontado</span><span style="color:#22c55e">−${fmt(desconto)}</span></div>` : ''}
+          ${e.troco_gerado > 0 ? `<div class="row sub"><span>Troco gerado</span><span style="color:#f59e0b">+${fmt(e.troco_gerado)}</span></div>` : ''}
+          ${e.assinatura ? `<img src="${e.assinatura}" style="max-width:60mm;max-height:15mm;object-fit:contain;margin-top:4px;" />` : ''}
+        </div>`
+    }).join('')
+
+    const html = `<!DOCTYPE html><html><head><meta charset="UTF-8">
+    <style>
+      * { margin:0; padding:0; box-sizing:border-box; }
+      body { font-family:'Courier New',monospace; font-size:11px; width:72mm; margin:0 auto; color:#000; }
+      .centro { text-align:center; }
+      .negrito { font-weight:bold; }
+      .grande { font-size:14px; }
+      .valor { font-size:14px; }
+      .sep { border-top:1px dashed #000; margin:6px 0; }
+      .row { display:flex; justify-content:space-between; }
+      .sub { font-size:10px; color:#555; margin-top:1px; }
+      .linha { padding:6px 0; border-bottom:1px solid #eee; }
+      @media print { @page { size:80mm auto; margin:2mm; } }
+    </style></head><body>
+    <div class="centro negrito grande">${nomeEstab}</div>
+    <div class="centro">HISTÓRICO DE PAGAMENTOS</div>
+    <div class="sep"></div>
+    <div class="negrito grande">${pessoa.nome}</div>
+    <div style="font-size:10px;color:#555">${pessoa.funcao || ''}</div>
+    <div style="font-size:10px;color:#555">Período: ${periodoLabel}</div>
+    <div class="sep"></div>
+    ${linhas}
+    <div class="sep"></div>
+    <div class="row negrito"><span>💵 Dinheiro</span><span>${fmt(totalDin)}</span></div>
+    <div class="row negrito"><span>📱 Pix</span><span>${fmt(totalPix)}</span></div>
+    <div class="sep"></div>
+    <div class="row negrito grande"><span>TOTAL</span><span>${fmt(totalGeral)}</span></div>
+    <div style="margin-top:6px;font-size:10px;color:#999;text-align:center">${pessoa.qtd} pagamentos</div>
+    <script>window.onload=()=>window.print()<\/script>
+    </body></html>`
+
+    const w = window.open('', '_blank', 'width=400,height=700')
+    w.document.write(html)
+    w.document.close()
+  }
+
+  return (
+    <Modal title={pessoa.nome} onClose={onClose}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
+
+        {/* Resumo */}
+        <div style={{ ...S.card, background: 'linear-gradient(135deg,#1a1a2e,#2d2340)', color: '#fff', marginBottom: 12 }}>
+          <div style={{ fontSize: 11, color: '#c9a96e60' }}>{pessoa.qtd} pagamentos no período</div>
+          <div style={{ fontSize: 28, fontWeight: 700, color: '#c9a96e' }}>{fmt(totalGeral)}</div>
+          <div style={{ display: 'flex', gap: 16, marginTop: 6 }}>
+            <div style={{ fontSize: 12, color: '#c9a96e80' }}>💵 {fmt(totalDin)}</div>
+            <div style={{ fontSize: 12, color: '#60a5fa80' }}>📱 {fmt(totalPix)}</div>
+          </div>
+          {pessoa.trocos > 0 && <div style={{ fontSize: 11, color: '#ef4444', marginTop: 4 }}>🔴 Troco pendente: {fmt(pessoa.trocos)}</div>}
+        </div>
+
+        {/* Histórico */}
+        {pessoa.pagamentos.map((e, i) => {
+          const setor = setores.find(s => s.id === e.setor_id)
+          const desconto = (e.trocos_descontados || []).reduce((a, t) => a + t.valor, 0)
+          return (
+            <div key={i} style={{ padding: '10px 0', borderBottom: '1px solid #f0e8d8' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                <div>
+                  <div style={{ fontWeight: 600, fontSize: 13 }}>{dayLabel(e.data_op)}</div>
+                  <div style={{ fontSize: 12, color: '#8a7355' }}>{e.funcao}{e.turnos ? ' · ' + e.turnos : ''}{setor ? ' · ' + setor.nome : ''}</div>
+                  {desconto > 0 && <div style={{ fontSize: 11, color: '#22c55e' }}>−{fmt(desconto)} troco descontado</div>}
+                  {e.troco_gerado > 0 && <div style={{ fontSize: 11, color: '#f59e0b' }}>+{fmt(e.troco_gerado)} troco gerado</div>}
+                </div>
+                <div style={{ textAlign: 'right' }}>
+                  <div style={{ fontSize: 15, fontWeight: 700, color: '#c9a96e' }}>{fmt(e.valor_final)}</div>
+                  {e.forma_pagamento === 'pix' ? <Badge color="#3b82f6">📱 Pix</Badge> : <Badge color="#22c55e">💵 Din</Badge>}
+                </div>
+              </div>
+              {e.assinatura && <img src={e.assinatura} alt="Ass." style={{ maxHeight: 40, marginTop: 4, border: '1px solid #e0d5c5', borderRadius: 4 }} />}
+            </div>
+          )
+        })}
+
+        <button onClick={imprimir} style={{ ...S.btn('#1a1a2e'), fontWeight: 700, marginTop: 16 }}>
+          🖨️ Imprimir histórico
+        </button>
+      </div>
+    </Modal>
   )
 }
 
