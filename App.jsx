@@ -153,50 +153,50 @@ async function uploadAssinatura(extraId, base64DataUrl) {
 
 // ── PALETA DE CORES ─────────────────────────────────────────────────────────
 const C = {
-  bg:        '#0d0d1a',   // fundo principal azul escuro profundo
-  bgCard:    '#151528',   // card escuro
-  bgCard2:   '#1a1a35',   // card levemente mais claro
-  border:    '#2a2a4a',   // borda sutil
-  primary:   '#e8407a',   // rosa/pink vibrante (principal)
-  secondary: '#00c2cb',   // ciano/teal (secundário)
-  accent:    '#7c3aed',   // roxo accent
-  gold:      '#f59e0b',   // dourado
-  success:   '#10b981',   // verde
-  danger:    '#ef4444',   // vermelho
-  text:      '#f0f0ff',   // texto principal
-  textMuted: '#8888aa',   // texto secundário
-  textDim:   '#4a4a6a',   // texto bem fraco
+  bg:        '#f7f6f3',   // fundo creme neutro
+  bgCard:    '#ffffff',   // card branco limpo
+  bgCard2:   '#f0ede8',   // card secundário bege suave
+  border:    '#e4ddd4',   // borda quente discreta
+  primary:   '#b5763a',   // âmbar caramelo remetendo à brasa
+  secondary: '#3d6b8a',   // azul petróleo elegante
+  accent:    '#5c4d8a',   // roxo suave para destaques
+  gold:      '#9a7520',   // dourado escuro para avisos
+  success:   '#2e6b47',   // verde floresta
+  danger:    '#a83228',   // vermelho vinho
+  text:      '#18181b',   // quase preto
+  textMuted: '#6b6360',   // marrom acinzentado
+  textDim:   '#a8a09a',   // texto fraco
 }
 
-// Cores das cédulas
+// Cores das cédulas — refinadas, não neon
 const NOTAS_CORES = {
-  100: { bg: '#1e3a5f', label: '#60a5fa', emoji: '💙', nome: 'R$100' },
-  50:  { bg: '#3d1f00', label: '#fb923c', emoji: '🟠', nome: 'R$50'  },
-  20:  { bg: '#3d3000', label: '#fbbf24', emoji: '🟡', nome: 'R$20'  },
-  10:  { bg: '#3d0a2e', label: '#f472b6', emoji: '🩷', nome: 'R$10'  },
-  5:   { bg: '#1e0a3d', label: '#a78bfa', emoji: '💜', nome: 'R$5'   },
+  100: { bg: '#dbeafe', label: '#1d4ed8', emoji: '💙', nome: 'R$100' },
+  50:  { bg: '#ffedd5', label: '#c2410c', emoji: '🟠', nome: 'R$50'  },
+  20:  { bg: '#fef9c3', label: '#854d0e', emoji: '🟡', nome: 'R$20'  },
+  10:  { bg: '#fce7f3', label: '#9d174d', emoji: '🩷', nome: 'R$10'  },
+  5:   { bg: '#ede9fe', label: '#5b21b6', emoji: '💜', nome: 'R$5'   },
 }
 
 const S = {
   app: {
     minHeight: '100vh',
     background: C.bg,
-    fontFamily: "'Inter', 'SF Pro Display', -apple-system, BlinkMacSystemFont, sans-serif",
+    fontFamily: "'Inter', 'Geist', system-ui, -apple-system, sans-serif",
     maxWidth: 480,
     margin: '0 auto',
     color: C.text,
   },
   header: {
-    background: `linear-gradient(135deg, #0d0d1a 0%, #1a0d2e 100%)`,
+    background: '#1c1917',
     padding: '18px 20px 14px',
-    color: C.text,
+    color: '#fff',
     position: 'sticky',
     top: 0,
     zIndex: 100,
-    borderBottom: `1px solid ${C.border}`,
-    backdropFilter: 'blur(20px)',
+    borderBottom: '1px solid #2d2420',
+    boxShadow: '0 1px 2px rgba(0,0,0,0.1)',
   },
-  content: { padding: '16px 14px', paddingBottom: 90 },
+  content: { padding: '20px 18px', paddingBottom: 100 },
   nav: {
     position: 'fixed',
     bottom: 0,
@@ -204,31 +204,31 @@ const S = {
     transform: 'translateX(-50%)',
     width: '100%',
     maxWidth: 480,
-    background: '#0d0d1acc',
-    backdropFilter: 'blur(20px)',
+    background: '#ffffff',
     borderTop: `1px solid ${C.border}`,
     display: 'flex',
     zIndex: 100,
   },
   card: {
     background: C.bgCard,
-    borderRadius: 18,
-    padding: 16,
-    boxShadow: '0 4px 24px rgba(0,0,0,0.4)',
+    borderRadius: 16,
+    padding: '18px 20px',
+    boxShadow: '0 1px 3px rgba(0,0,0,0.06), 0 4px 12px rgba(0,0,0,0.04)',
     border: `1px solid ${C.border}`,
-    marginBottom: 12,
+    marginBottom: 14,
   },
   input: {
     width: '100%',
-    padding: '13px 16px',
+    padding: '12px 16px',
     border: `1.5px solid ${C.border}`,
     borderRadius: 12,
     fontFamily: 'inherit',
     fontSize: 15,
-    background: C.bgCard2,
+    background: '#fafafa',
     boxSizing: 'border-box',
     color: C.text,
     outline: 'none',
+    transition: 'border-color 0.2s',
   },
   label: {
     fontSize: 11,
@@ -237,68 +237,71 @@ const S = {
     marginBottom: 6,
     display: 'block',
     textTransform: 'uppercase',
-    letterSpacing: '0.08em',
+    letterSpacing: '0.06em',
   },
   btn: (bg, outline) => outline ? ({
     background: 'transparent',
     color: bg,
-    border: `2px solid ${bg}`,
-    borderRadius: 14,
-    padding: '12px 16px',
+    border: `1.5px solid ${bg}`,
+    borderRadius: 12,
+    padding: '12px 20px',
     fontFamily: 'inherit',
     fontSize: 14,
     fontWeight: 700,
     cursor: 'pointer',
     flex: 1,
-    letterSpacing: '0.02em',
   }) : ({
-    background: `linear-gradient(135deg, ${bg}, ${bg}cc)`,
+    background: bg === C.danger
+      ? `linear-gradient(to bottom, ${C.danger}, #8b2820)`
+      : `linear-gradient(to bottom, ${bg}, ${bg}dd)`,
     color: '#fff',
     border: 'none',
-    borderRadius: 14,
-    padding: '12px 16px',
+    borderRadius: 12,
+    padding: '12px 20px',
     fontFamily: 'inherit',
     fontSize: 14,
     fontWeight: 700,
     cursor: 'pointer',
     flex: 1,
-    boxShadow: `0 4px 16px ${bg}55`,
-    letterSpacing: '0.02em',
+    boxShadow: bg === C.primary
+      ? '0 2px 8px rgba(181,118,58,0.3)'
+      : bg === C.danger
+        ? '0 2px 8px rgba(168,50,40,0.3)'
+        : 'none',
   }),
   modal: {
     position: 'fixed',
     inset: 0,
-    background: 'rgba(0,0,0,0.75)',
+    background: 'rgba(0,0,0,0.45)',
     zIndex: 1000,
     display: 'flex',
     alignItems: 'flex-end',
     justifyContent: 'center',
-    backdropFilter: 'blur(4px)',
+    backdropFilter: 'blur(6px)',
   },
   modalBox: {
-    background: '#12122a',
-    borderRadius: '24px 24px 0 0',
-    padding: '20px 20px 36px',
+    background: '#ffffff',
+    borderRadius: '20px 20px 0 0',
+    padding: '20px 20px 40px',
     width: '100%',
     maxWidth: 480,
     maxHeight: '92vh',
     overflowY: 'auto',
-    border: `1px solid ${C.border}`,
-    borderBottom: 'none',
+    boxShadow: '0 -4px 32px rgba(0,0,0,0.12)',
   },
 }
 
-const Badge = ({ children, color = '#e8407a' }) => (
-  <span style={{ background: color + '25', color, border: `1px solid ${color}55`, borderRadius: 20, padding: '3px 10px', fontSize: 11, fontWeight: 700, whiteSpace: 'nowrap', letterSpacing: '0.03em' }}>{children}</span>
+const Badge = ({ children, color = C.primary }) => (
+  <span style={{ background: color + '22', color, border: `1px solid ${color}44`, borderRadius: 6, padding: '3px 8px', fontSize: 11, fontWeight: 700, whiteSpace: 'nowrap', letterSpacing: '0.03em', display: 'inline-flex', alignItems: 'center' }}>{children}</span>
 )
 
 const Modal = ({ children, onClose, title }) => (
-  <div style={S.modal}>
+  <div style={S.modal} onClick={e => e.target === e.currentTarget && onClose()}>
     <div style={S.modalBox}>
-      <div style={{ width: 40, height: 4, background: C.border, borderRadius: 2, margin: '0 auto 16px' }} />
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
-        <h3 style={{ margin: 0, fontSize: 18, fontWeight: 700, color: C.text }}>{title}</h3>
-        <button onClick={onClose} style={{ background: C.bgCard2, border: `1px solid ${C.border}`, borderRadius: 10, width: 32, height: 32, cursor: 'pointer', color: C.textMuted, fontSize: 16, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>✕</button>
+      <div style={{ width: 36, height: 4, background: C.border, borderRadius: 2, margin: '0 auto 20px' }} />
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 }}>
+        <h3 style={{ margin: 0, fontSize: 20, fontWeight: 800, color: C.text, letterSpacing: '-0.02em' }}>{title}</h3>
+        <button onClick={onClose} style={{ background: C.bgCard2, border: 'none', borderRadius: '50%', width: 32, height: 32, cursor: 'pointer', color: C.textMuted, fontSize: 14, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>✕</button>
       </div>
       {children}
     </div>
@@ -428,14 +431,14 @@ function AppPrincipal({ usuario, onLogout }) {
       <div style={S.header}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <div>
-            <div style={{ fontSize: 10, color: C.secondary, letterSpacing: '0.2em', textTransform: 'uppercase', fontWeight: 600 }}>Sistema Operacional</div>
-            <div style={{ fontSize: 24, fontWeight: 800, background: `linear-gradient(135deg, ${C.primary}, ${C.secondary})`, WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', letterSpacing: '-0.5px' }}>{config.nome_estabelecimento}</div>
+            <div style={{ fontSize: 10, fontWeight: 800, color: '#9a7520', letterSpacing: '0.15em', textTransform: 'uppercase', marginBottom: 2 }}>SISTEMA OPERACIONAL</div>
+            <div style={{ fontSize: 22, fontWeight: 900, color: '#ffffff', letterSpacing: '-0.03em' }}>{config.nome_estabelecimento}</div>
           </div>
           <div style={{ textAlign: 'right' }}>
-            <div style={{ fontSize: 10, color: C.textMuted }}>Data operacional</div>
-            <div style={{ fontSize: 13, color: C.secondary, fontWeight: 700 }}>{dayLabel(today)}</div>
-            <div style={{ fontSize: 10, color: C.textDim, marginTop: 2 }}>👤 {usuario.nome}</div>
-            <button onClick={onLogout} style={{ background: 'none', border: `1px solid ${C.border}`, borderRadius: 6, color: C.textMuted, fontSize: 10, padding: '2px 8px', cursor: 'pointer', marginTop: 2 }}>Sair</button>
+            <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.5)' }}>Data operacional</div>
+            <div style={{ fontSize: 13, color: '#ffffff', fontWeight: 700 }}>{dayLabel(today)}</div>
+            <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.4)', marginTop: 2 }}>👤 {usuario.nome}</div>
+            <button onClick={onLogout} style={{ background: 'rgba(255,255,255,0.1)', border: 'none', borderRadius: 6, color: 'rgba(255,255,255,0.7)', fontSize: 10, padding: '3px 8px', cursor: 'pointer', marginTop: 3, fontWeight: 700 }}>Sair</button>
           </div>
         </div>
       </div>
@@ -448,10 +451,15 @@ function AppPrincipal({ usuario, onLogout }) {
       </div>
       <div style={S.nav}>
         {tabs.map(t => (
-          <button key={t.id} onClick={() => setTab(t.id)} style={{ flex: 1, border: 'none', background: 'none', padding: '10px 4px 14px', cursor: 'pointer', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3 }}>
-            <span style={{ fontSize: 22, filter: tab === t.id ? 'none' : 'grayscale(0.8) opacity(0.5)' }}>{t.icon}</span>
-            <span style={{ fontSize: 9, color: tab === t.id ? C.primary : C.textDim, fontWeight: tab === t.id ? 800 : 400, fontFamily: 'inherit', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{t.label}</span>
-            {tab === t.id && <div style={{ width: 24, height: 3, background: `linear-gradient(90deg, ${C.primary}, ${C.secondary})`, borderRadius: 2 }} />}
+          <button key={t.id} onClick={() => setTab(t.id)} style={{
+              flex: 1, border: 'none', background: 'none',
+              padding: '12px 4px 14px', cursor: 'pointer',
+              display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4,
+              borderTop: tab === t.id ? `3px solid ${C.primary}` : '3px solid transparent',
+              marginTop: -1,
+            }}>
+            <span style={{ fontSize: 20, opacity: tab === t.id ? 1 : 0.45 }}>{t.icon}</span>
+            <span style={{ fontSize: 9, color: tab === t.id ? C.primary : C.textDim, fontWeight: tab === t.id ? 800 : 500, fontFamily: 'inherit', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{t.label}</span>
           </button>
         ))}
       </div>
@@ -2627,79 +2635,64 @@ function TelaLogin({ onLogin }) {
   const S2 = {
     tela: {
       minHeight: '100vh',
-      background: `radial-gradient(ellipse at top left, #1a0d2e 0%, ${C.bg} 50%, #0d1a2e 100%)`,
+      background: `linear-gradient(135deg, ${C.bg} 0%, #e4ddd4 100%)`,
       display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
       padding: 24,
-      fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, sans-serif",
-      position: 'relative', overflow: 'hidden',
+      fontFamily: "'Inter', system-ui, -apple-system, sans-serif",
     },
     card: {
-      background: 'rgba(21,21,40,0.95)',
-      backdropFilter: 'blur(20px)',
+      background: '#ffffff',
       borderRadius: 24,
-      padding: '32px 28px',
-      width: '100%', maxWidth: 380,
-      boxShadow: '0 24px 64px rgba(0,0,0,0.6)',
+      padding: '40px 32px',
+      width: '100%', maxWidth: 400,
+      boxShadow: '0 10px 40px rgba(0,0,0,0.08)',
       border: `1px solid ${C.border}`,
+      textAlign: 'center',
     },
     input: {
       width: '100%', padding: '14px 18px',
       border: `1.5px solid ${C.border}`,
-      borderRadius: 14,
+      borderRadius: 12,
       fontFamily: 'inherit', fontSize: 15,
-      background: C.bgCard2,
+      background: '#fafafa',
       boxSizing: 'border-box', marginBottom: 12,
       color: C.text, outline: 'none',
     },
     btn: (bg) => ({
       width: '100%', padding: '15px',
-      background: `linear-gradient(135deg, ${bg}, ${bg}cc)`,
-      color: '#fff', border: 'none', borderRadius: 14,
+      background: bg === C.textDim ? C.bgCard2 : `linear-gradient(to bottom, ${bg}, ${bg}dd)`,
+      color: bg === C.textDim ? C.textMuted : '#fff',
+      border: 'none', borderRadius: 12,
       fontFamily: 'inherit', fontSize: 15, fontWeight: 800,
       cursor: 'pointer', marginBottom: 10,
-      boxShadow: `0 6px 20px ${bg}55`,
-      letterSpacing: '0.03em',
+      boxShadow: bg === C.primary ? '0 4px 16px rgba(181,118,58,0.3)' : 'none',
     }),
     erro: { color: C.danger, fontSize: 13, textAlign: 'center', marginBottom: 10, fontWeight: 600 },
     link: { color: C.secondary, fontSize: 13, textAlign: 'center', cursor: 'pointer', fontWeight: 600 },
   }
 
-  // Círculos decorativos fundo
-  const Deco = () => <>
-    <div style={{ position: 'absolute', top: -80, left: -80, width: 280, height: 280, borderRadius: '50%', background: `radial-gradient(circle, ${C.primary}33, transparent 70%)`, pointerEvents: 'none' }} />
-    <div style={{ position: 'absolute', top: -40, right: -60, width: 200, height: 200, borderRadius: '50%', background: `radial-gradient(circle, ${C.secondary}22, transparent 70%)`, pointerEvents: 'none' }} />
-    <div style={{ position: 'absolute', bottom: -60, right: -40, width: 240, height: 240, borderRadius: '50%', background: `radial-gradient(circle, ${C.accent}22, transparent 70%)`, pointerEvents: 'none' }} />
-  </>
+  const Deco = () => null // decorações removidas no novo design limpo
 
   if (modo === 'aguardando') return (
     <div style={S2.tela}>
-      <Deco />
       <div style={S2.card}>
-        <div style={{ textAlign: 'center', fontSize: 48, marginBottom: 16 }}>⏳</div>
-        <div style={{ fontWeight: 800, fontSize: 20, textAlign: 'center', marginBottom: 8, color: C.text }}>Cadastro enviado!</div>
-        <div style={{ fontSize: 14, color: C.textMuted, textAlign: 'center', marginBottom: 24, lineHeight: 1.5 }}>Aguarde o administrador aprovar seu acesso. Volte em breve.</div>
-        <button onClick={() => setModo('login')} style={S2.btn(C.secondary)}>Voltar ao login</button>
+        <div style={{ fontSize: 56, marginBottom: 16 }}>⏳</div>
+        <div style={{ fontWeight: 800, fontSize: 20, color: C.text, marginBottom: 8 }}>Cadastro enviado!</div>
+        <div style={{ fontSize: 14, color: C.textMuted, marginBottom: 24, lineHeight: 1.6 }}>Aguarde o administrador aprovar seu acesso. Volte em breve.</div>
+        <button onClick={() => setModo('login')} style={S2.btn(C.secondary)}>← Voltar ao login</button>
       </div>
     </div>
   )
 
   return (
     <div style={S2.tela}>
-      <Deco />
-      <div style={{ textAlign: 'center', marginBottom: 28, position: 'relative' }}>
-        <div style={{ fontSize: 10, color: C.secondary, letterSpacing: '0.25em', textTransform: 'uppercase', fontWeight: 700, marginBottom: 4 }}>Sistema Operacional</div>
-        <div style={{ fontSize: 32, fontWeight: 900, background: `linear-gradient(135deg, ${C.primary}, ${C.secondary})`, WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', letterSpacing: '-0.5px' }}>ARACÁ GRILL</div>
-      </div>
       <div style={S2.card}>
-        <div style={{ textAlign: 'center', marginBottom: 20 }}>
-          <div style={{ width: 64, height: 64, borderRadius: 32, background: `linear-gradient(135deg, ${C.primary}33, ${C.secondary}33)`, border: `2px solid ${C.border}`, display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 12px', fontSize: 28 }}>👤</div>
-          <div style={{ fontWeight: 800, fontSize: 18, color: C.text }}>
-            {modo === 'login' ? 'Bem-vindo de volta' : 'Solicitar Acesso'}
-          </div>
-          <div style={{ fontSize: 12, color: C.textMuted, marginTop: 2 }}>
-            {modo === 'login' ? 'Entre com suas credenciais' : 'Preencha para solicitar acesso'}
-          </div>
-        </div>
+        <div style={{ fontSize: 48, marginBottom: 12 }}>🔥</div>
+        <h1 style={{ margin: 0, fontSize: 28, fontWeight: 900, letterSpacing: '-0.04em', color: C.text }}>Aracá Grill</h1>
+        <p style={{ color: C.textMuted, fontSize: 14, marginTop: 6, marginBottom: 28 }}>
+          {modo === 'login' ? 'Gestão Operacional de Extras' : 'Solicitar Acesso ao Sistema'}
+        </p>
+        <div style={{ textAlign: 'left' }}>
         {modo === 'cadastro' && (
           <input value={nome} onChange={e => setNome(e.target.value)} style={S2.input} placeholder="Seu nome completo" />
         )}
@@ -2708,12 +2701,12 @@ function TelaLogin({ onLogin }) {
         {erro ? <div style={S2.erro}>{erro}</div> : null}
         <button onClick={modo === 'login' ? entrar : cadastrar} disabled={loading}
           style={S2.btn(loading ? C.textDim : C.primary)}>
-          {loading ? 'Aguarde...' : modo === 'login' ? 'Entrar →' : 'Solicitar Acesso →'}
+          {loading ? 'Aguarde...' : modo === 'login' ? 'Entrar no Sistema' : 'Solicitar Acesso'}
         </button>
-        <div style={S2.link} onClick={() => { setErro(''); setModo(modo === 'login' ? 'cadastro' : 'login') }}>
+        <div style={{ ...S2.link, marginTop: 4 }} onClick={() => { setErro(''); setModo(modo === 'login' ? 'cadastro' : 'login') }}>
           {modo === 'login' ? 'Não tenho acesso? Solicitar cadastro' : 'Já tenho cadastro — Entrar'}
         </div>
-      </div>
+        </div>
     </div>
   )
 }
