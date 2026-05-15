@@ -1,7 +1,7 @@
 import { imprimirRecibos } from './impressao'
 import { useState, useEffect, useRef } from 'react'
 import { db } from './firebase'
-import { collection, addDoc, updateDoc, setDoc, doc, onSnapshot, deleteDoc } from 'firebase/firestore'
+import { collection, addDoc, updateDoc, setDoc, doc, onSnapshot, deleteDoc, runTransaction, getDoc } from 'firebase/firestore'
 
 const fmt = (cents) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format((cents || 0) / 100)
 const parseCents = (str) => parseInt(String(str).replace(/\D/g, '') || '0', 10)
@@ -27,8 +27,9 @@ const todayOp = (cfg) => {
 }
 const dayLabel = (dateStr) => {
   if (!dateStr) return ''
-  const d = new Date(dateStr + 'T12:00:00')
-  return DIAS[d.getDay()] + ' ' + String(d.getDate()).padStart(2, '0') + '/' + String(d.getMonth() + 1).padStart(2, '0')
+  const [y, m, d] = dateStr.split('-')
+  const dt = new Date(Number(y), Number(m) - 1, Number(d))
+  return DIAS[dt.getDay()] + ' ' + String(dt.getDate()).padStart(2, '0') + '/' + String(dt.getMonth() + 1).padStart(2, '0')
 }
 const isWeekend = (dateStr) => { const d = new Date(dateStr + 'T12:00:00'); return [5, 6, 0].includes(d.getDay()) }
 const calcNotes = (cents) => {
@@ -204,8 +205,30 @@ function TabExtras({ store, today, setModal }) {
     if (ontemExtras.length === 0) return alert('Nenhum extra ontem para duplicar.')
     for (const e of ontemExtras) {
       const p = pessoas.find(x => x.id === e.pessoa_id)
-      const val = p ? (isWeekend(today) ? p.val_sex_dom : p.val_seg_qui) : e.valor_final
-      await addExtra({ ...e, id: undefined, data_op: today, data_real: toDateStr(new Date()), valor_final: val, valor_original: val, pago: false, previsao: 'indefinido', assinatura: null, lancado: false })
+      const val = p ? (isWeekend(today) ? p.val_sex_dom : p.val_seg_qui) : e.valor_original || e.valor_final
+      // Cria explicitamente — nunca copia flags de pagamento do dia anterior
+      await addExtra({
+        pessoa_id:       e.pessoa_id,
+        nome:            e.nome,
+        funcao:          e.funcao,
+        setor_id:        e.setor_id,
+        turnos:          e.turnos,
+        obs:             e.obs || '',
+        data_op:         today,
+        data_real:       toDateStr(new Date()),
+        valor_extra:     val,
+        valor_original:  val,
+        valor_final:     val,
+        pago:            false,
+        previsao:        'indefinido',
+        assinatura:      null,
+        forma_pagamento: null,
+        lancado:         false,
+        trocos_descontados: [],
+        troco_gerado:    0,
+        desconto_troco:  0,
+        valor_pago:      0,
+      })
     }
   }
 
@@ -282,7 +305,28 @@ function ModalAddExtra({ store, today, onClose }) {
   const save = async () => {
     if (!nome.trim()) return alert('Nome obrigatório')
     const v = parseCents(valorDisplay)
-    await addExtra({ pessoa_id: pessoaId || null, nome: nome.trim(), funcao, setor_id: setorId, data_op: today, data_real: toDateStr(new Date()), turnos, valor_original: v, valor_final: v, obs, pago: false, previsao: 'indefinido', assinatura: null, forma_pagamento: null, lancado: false, trocos_descontados: [] })
+    await addExtra({
+      pessoa_id:          pessoaId || null,
+      nome:               nome.trim(),
+      funcao,
+      setor_id:           setorId,
+      data_op:            today,
+      data_real:          toDateStr(new Date()),
+      turnos,
+      obs,
+      valor_extra:        v,
+      valor_original:     v,
+      valor_final:        v,
+      desconto_troco:     0,
+      valor_pago:         0,
+      troco_gerado:       0,
+      pago:               false,
+      previsao:           'indefinido',
+      assinatura:         null,
+      forma_pagamento:    null,
+      lancado:            false,
+      trocos_descontados: [],
+    })
     onClose()
   }
 
@@ -490,7 +534,7 @@ function ModalPagar({ store, extra, today, onClose }) {
   // quando seleciona/deseleciona troco, atualiza valor sugerido no input
   useEffect(() => {
     setValorDisplay(fmt(valorSugerido))
-  }, [trocosSelecionados.length])
+  }, [trocosSelecionados])
 
   const toggleTroco = (t) => {
     setTrocosSelecionados(prev =>
@@ -513,36 +557,70 @@ function ModalPagar({ store, extra, today, onClose }) {
   }
 
   const finalizar = async () => {
-    // 1. Calcular novo troco se pagou a mais do que devia
-    const diff = valorCents - valorBase  // positivo = pagou a mais = novo troco
-    const novosTrocos = [...trocos.filter(t =>
-      !trocosSelecionados.find(s => s.data === t.data && s.valor === t.valor)
-    )]
-    if (diff > 0 && pessoa) {
-      novosTrocos.push({ data: today, valor: diff, descricao: `Troco do dia ${dayLabel(today)}` })
+    try {
+      await runTransaction(db, async (transaction) => {
+        // 1. Lê o estado mais recente do extra no Firebase
+        const extraRef = doc(db, 'extras', extra.id)
+        const extraSnap = await transaction.get(extraRef)
+
+        if (!extraSnap.exists()) throw new Error('Extra não encontrado.')
+        if (extraSnap.data()?.pago) throw new Error('JÁ_PAGO')
+
+        // 2. Calcula valores financeiros separados
+        const totalDesconto = trocosSelecionados.reduce((a, t) => a + t.valor, 0)
+        const valorPagoFinal = valorCents
+        const trocoGeradoFinal = Math.max(0, valorPagoFinal - valorBase + totalDesconto)
+
+        // 3. Atualiza o extra com valores separados
+        transaction.update(extraRef, {
+          pago:               true,
+          forma_pagamento:    forma,
+          valor_extra:        valorBase,        // valor contratado (imutável)
+          desconto_troco:     totalDesconto,    // quanto foi descontado de troco
+          valor_pago:         valorPagoFinal,   // quanto saiu do caixa
+          troco_gerado:       trocoGeradoFinal, // novo troco gerado hoje
+          valor_final:        valorPagoFinal,   // mantido por compatibilidade
+          assinatura,
+          data_pagamento:     new Date().toISOString(),
+          trocos_descontados: trocosSelecionados,
+        })
+
+        // 4. Atualiza trocos do funcionário
+        if (pessoa) {
+          const pessoaRef = doc(db, 'pessoas', pessoa.id)
+          const novosTrocos = [
+            ...trocos.filter(t =>
+              !trocosSelecionados.find(s => s.data === t.data && s.valor === t.valor)
+            )
+          ]
+          if (trocoGeradoFinal > 0) {
+            novosTrocos.push({
+              data: today,
+              valor: trocoGeradoFinal,
+              descricao: `Troco do dia ${dayLabel(today)}`,
+            })
+          }
+          transaction.update(pessoaRef, { trocos: novosTrocos })
+        }
+      })
+
+      // 5. Envia Pix fora da transaction (efeito colateral)
+      if (forma === 'pix') {
+        const numero = config?.whatsapp_pix || DEFAULT_CONFIG.whatsapp_pix
+        window.open(`https://wa.me/${numero}?text=${encodeURIComponent(buildPixMsg())}`, '_blank')
+      }
+
+      onClose()
+
+    } catch (err) {
+      if (err.message === 'JÁ_PAGO') {
+        alert('⚠️ Este extra já foi pago em outro dispositivo.')
+        onClose()
+      } else {
+        alert('Erro ao registrar pagamento. Tente novamente.')
+        console.error(err)
+      }
     }
-
-    // 2. Salvar extra como pago
-    await updateExtra(extra.id, {
-      pago: true,
-      forma_pagamento: forma,
-      valor_final: valorCents,
-      valor_original: valorBase,
-      assinatura,
-      data_pagamento: new Date().toISOString(),
-      trocos_descontados: trocosSelecionados,
-      troco_gerado: diff > 0 ? diff : 0,
-    })
-
-    // 3. Atualizar trocos do funcionário
-    if (pessoa) await updatePessoa(pessoa.id, { trocos: novosTrocos })
-
-    // 4. Enviar Pix se necessário
-    if (forma === 'pix') {
-      const numero = config?.whatsapp_pix || DEFAULT_CONFIG.whatsapp_pix
-      window.open(`https://wa.me/${numero}?text=${encodeURIComponent(buildPixMsg())}`, '_blank')
-    }
-    onClose()
   }
 
   if (step === 'assinatura') return (
