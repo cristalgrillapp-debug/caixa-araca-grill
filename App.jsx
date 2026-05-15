@@ -2,7 +2,6 @@ import { imprimirRecibos } from './impressao'
 import { useState, useEffect, useRef, useMemo } from 'react'
 import { db } from './firebase'
 import { collection, addDoc, updateDoc, setDoc, doc, onSnapshot, deleteDoc, runTransaction, getDoc, query, where, orderBy, limit } from 'firebase/firestore'
-import { getStorage, ref as storageRef, uploadString, getDownloadURL } from 'firebase/storage'
 
 const fmt = (cents) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format((cents || 0) / 100)
 const parseCents = (str) => parseInt(String(str).replace(/\D/g, '') || '0', 10)
@@ -43,18 +42,36 @@ const calcNotes = (cents) => {
 // trocos: [{ data, valor, descricao }]
 const totalTrocos = (trocos) => (trocos || []).reduce((a, t) => a + t.valor, 0)
 
-// Faz upload da assinatura no Firebase Storage e retorna a URL
+// Comprime a assinatura para ~3kb antes de salvar no Firestore
+function comprimirAssinatura(base64DataUrl) {
+  return new Promise((resolve) => {
+    if (!base64DataUrl) return resolve(null)
+    const img = new Image()
+    img.onload = () => {
+      const canvas = document.createElement('canvas')
+      // Reduz para no máximo 300x100px mantendo proporção
+      const maxW = 300, maxH = 100
+      let w = img.width, h = img.height
+      if (w > maxW) { h = Math.round(h * maxW / w); w = maxW }
+      if (h > maxH) { w = Math.round(w * maxH / h); h = maxH }
+      canvas.width = w
+      canvas.height = h
+      const ctx = canvas.getContext('2d')
+      ctx.fillStyle = '#ffffff'
+      ctx.fillRect(0, 0, w, h)
+      ctx.drawImage(img, 0, 0, w, h)
+      // Qualidade 0.5 = ~3kb para assinatura simples
+      resolve(canvas.toDataURL('image/jpeg', 0.5))
+    }
+    img.onerror = () => resolve(base64DataUrl)
+    img.src = base64DataUrl
+  })
+}
+
+// Wrapper mantendo o nome original para compatibilidade
 async function uploadAssinatura(extraId, base64DataUrl) {
-  try {
-    const storage = getStorage()
-    const sRef = storageRef(storage, `assinaturas/${extraId}.png`)
-    await uploadString(sRef, base64DataUrl, 'data_url')
-    return await getDownloadURL(sRef)
-  } catch (e) {
-    // Se Storage não estiver configurado, salva base64 direto (fallback)
-    console.warn('Storage indisponível, usando base64:', e.message)
-    return base64DataUrl
-  }
+  if (!base64DataUrl) return null
+  return await comprimirAssinatura(base64DataUrl)
 }
 
 const S = {
@@ -1013,6 +1030,71 @@ function ModalEditPessoa({ store, pessoa, onClose }) {
 
 // ─── ABA CONFIG ───────────────────────────────────────────────────────────────
 
+function SecaoAssinaturas({ store }) {
+  const { extras, updateExtra } = store
+  const [periodo, setPeriodo] = useState(30)
+  const [limpando, setLimpando] = useState(false)
+  const [resultado, setResultado] = useState('')
+
+  const extrasComAssinatura = extras.filter(e => e.assinatura && e.assinatura.length > 0)
+  const hoje = new Date()
+
+  const limpar = async () => {
+    if (!confirm(`Apagar assinaturas de extras com mais de ${periodo} dias? O restante dos dados fica salvo.`)) return
+    setLimpando(true)
+    setResultado('')
+    let count = 0
+    for (const e of extrasComAssinatura) {
+      const dataExtra = new Date(e.data_op + 'T12:00:00')
+      const diffDias = Math.floor((hoje - dataExtra) / (1000 * 60 * 60 * 24))
+      if (diffDias >= periodo) {
+        await updateExtra(e.id, { assinatura: null })
+        count++
+      }
+    }
+    setLimpando(false)
+    setResultado(`✓ ${count} assinatura${count !== 1 ? 's' : ''} apagada${count !== 1 ? 's' : ''}`)
+    setTimeout(() => setResultado(''), 4000)
+  }
+
+  const totalKb = Math.round(extrasComAssinatura.reduce((a, e) => a + (e.assinatura?.length || 0), 0) / 1024)
+
+  return (
+    <div style={S.card}>
+      <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 12 }}>✍️ Assinaturas</div>
+      <div style={{ fontSize: 13, color: '#8a7355', marginBottom: 12 }}>
+        {extrasComAssinatura.length} assinatura{extrasComAssinatura.length !== 1 ? 's' : ''} salvas · ~{totalKb}kb no banco
+      </div>
+
+      <label style={S.label}>Apagar assinaturas mais antigas que</label>
+      <div style={{ display: 'flex', gap: 6, marginBottom: 12, flexWrap: 'wrap' }}>
+        {[7, 15, 30, 60, 90].map(d => (
+          <button key={d} onClick={() => setPeriodo(d)}
+            style={{ padding: '6px 12px', border: `2px solid ${periodo === d ? '#c9a96e' : '#e0d5c5'}`, borderRadius: 20, background: periodo === d ? '#c9a96e' : '#fff', color: periodo === d ? '#fff' : '#666', fontSize: 12, fontWeight: periodo === d ? 700 : 400, cursor: 'pointer' }}>
+            {d} dias
+          </button>
+        ))}
+      </div>
+
+      <div style={{ fontSize: 12, color: '#999', marginBottom: 12 }}>
+        {extrasComAssinatura.filter(e => {
+          const diff = Math.floor((hoje - new Date(e.data_op + 'T12:00:00')) / (1000 * 60 * 60 * 24))
+          return diff >= periodo
+        }).length} assinatura{extrasComAssinatura.filter(e => Math.floor((hoje - new Date(e.data_op + 'T12:00:00')) / (1000 * 60 * 60 * 24)) >= periodo).length !== 1 ? 's' : ''} serão apagadas
+      </div>
+
+      <button onClick={limpar} disabled={limpando}
+        style={{ ...S.btn(limpando ? '#ccc' : '#ef4444'), fontWeight: 700 }}>
+        {limpando ? 'Limpando...' : `🗑 Limpar assinaturas +${periodo} dias`}
+      </button>
+
+      {resultado ? (
+        <div style={{ marginTop: 10, fontSize: 13, color: '#22c55e', fontWeight: 600, textAlign: 'center' }}>{resultado}</div>
+      ) : null}
+    </div>
+  )
+}
+
 function TabConfig({ store, setModal }) {
   const { setores, addSetor, updateSetor, removeSetor, pessoas, removePessoa, config, updateConfig } = store
   const [novoSetor, setNovoSetor] = useState('')
@@ -1115,6 +1197,9 @@ function TabConfig({ store, setModal }) {
         ))}
         <button onClick={() => setModal({ type: 'addPessoa' })} style={{ ...S.btn('#6e7c8a'), marginTop: 12 }}>+ Nova Pessoa</button>
       </div>
+
+      {/* Assinaturas */}
+      <SecaoAssinaturas store={store} />
 
       <div style={{ ...S.card, background: '#fef3c7', border: '1px solid #f59e0b' }}>
         <div style={{ fontSize: 12, color: '#92400e', fontWeight: 700 }}>ℹ️ {config.nome_estabelecimento} v1.2</div>
