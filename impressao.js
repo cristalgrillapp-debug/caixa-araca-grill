@@ -40,6 +40,8 @@ export function imprimirRecibos(extras, pessoas, setores, config, forma) {
     const assinaturaHTML = e.assinatura && e.assinatura.startsWith('data:image')
       ? `<img src="${e.assinatura}" class="assinatura" />`
       : `<div class="linha-assinatura"></div>`
+    const obsHTML = e.obs ? `<div class="obs">📝 ${e.obs}</div>` : ''
+    const editadoHTML = e.editado ? `<div class="editado">✏️ Editado por ${e.editado_por || '?'} em ${e.editado_em ? new Date(e.editado_em).toLocaleDateString('pt-BR') : '?'}<br>Motivo: ${e.motivo_edicao || '?'}</div>` : ''
 
     return `
       <div class="recibo">
@@ -74,6 +76,8 @@ export function imprimirRecibos(extras, pessoas, setores, config, forma) {
           <div>Chave: ${pessoa.chave_pix}</div>
         ` : ''}
 
+        ${obsHTML}
+        ${editadoHTML}
         <div class="separador">${linha()}</div>
         <div class="centro">Assinatura do funcionario:</div>
         <div class="centro" style="margin-top:6px;">
@@ -130,6 +134,22 @@ export function imprimirRecibos(extras, pessoas, setores, config, forma) {
           max-width: 60mm;
           max-height: 20mm;
           object-fit: contain;
+        }
+        .obs {
+          font-size: 10px;
+          font-style: italic;
+          color: #444;
+          margin: 4px 0;
+          padding: 4px;
+          border-left: 2px solid #ccc;
+        }
+        .editado {
+          font-size: 9px;
+          color: #888;
+          margin: 3px 0;
+          padding: 3px 4px;
+          background: #f5f5f5;
+          border-radius: 3px;
         }
 
         .linha-assinatura {
