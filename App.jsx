@@ -509,49 +509,93 @@ function TabPagamentos({ store, today, setModal }) {
         const setor = setores.find(s => s.id === e.setor_id)
         const pessoa = pessoas.find(p => p.id === e.pessoa_id)
         const trocosTotal = totalTrocos(pessoa?.trocos)
+        const descontoAplicado = e.desconto_troco || 0
         return (
-          <div key={e.id} style={S.card}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 10 }}>
-              <div>
-                <div style={{ fontWeight: 700 }}>{e.nome}</div>
+          <div key={e.id} style={{ ...S.card, borderLeft: '4px solid #c9a96e' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontWeight: 700, fontSize: 16 }}>{e.nome}</div>
                 <div style={{ fontSize: 12, color: '#8a7355' }}>{e.funcao}{e.turnos ? ' · ' + e.turnos : ''}{setor ? ' · ' + setor.nome : ''}</div>
-                {trocosTotal > 0 && (
-                  <div style={{ fontSize: 11, color: '#ef4444', fontWeight: 600, marginTop: 2 }}>
-                    🔴 Troco pendente: {fmt(trocosTotal)}
-                  </div>
+              </div>
+              <div style={{ textAlign: 'right' }}>
+                <div style={{ fontSize: 22, fontWeight: 700, color: '#c9a96e' }}>{fmt(e.valor_final)}</div>
+                {descontoAplicado > 0 && (
+                  <div style={{ fontSize: 11, color: '#22c55e', fontWeight: 600 }}>−{fmt(descontoAplicado)} desconto</div>
                 )}
               </div>
-              <div style={{ fontSize: 18, fontWeight: 700, color: '#c9a96e' }}>{fmt(e.valor_final)}</div>
             </div>
-            <div style={{ display: 'flex', gap: 6, marginBottom: 10 }}>
+
+            {/* Troco pendente com botão de aplicar antes de pagar */}
+            {trocosTotal > 0 && (
+              <div style={{ background: '#fff5f5', border: '1px solid #fecaca', borderRadius: 8, padding: '8px 10px', marginBottom: 8 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <div>
+                    <div style={{ fontSize: 11, color: '#ef4444', fontWeight: 700 }}>🔴 Troco a descontar</div>
+                    {(pessoa?.trocos || []).map((t, i) => (
+                      <div key={i} style={{ fontSize: 11, color: '#b91c1c' }}>• {dayLabel(t.data)}: {fmt(t.valor)}</div>
+                    ))}
+                  </div>
+                  <div style={{ textAlign: 'right' }}>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: '#b91c1c' }}>{fmt(trocosTotal)}</div>
+                    <button
+                      onClick={async () => {
+                        if (!confirm(`Aplicar desconto de ${fmt(trocosTotal)} no valor de ${e.nome}?`)) return
+                        const novoValor = Math.max(0, e.valor_final - trocosTotal)
+                        await updateExtra(e.id, {
+                          valor_final: novoValor,
+                          desconto_troco: (e.desconto_troco || 0) + trocosTotal,
+                          trocos_descontados: pessoa?.trocos || [],
+                        })
+                        if (pessoa) await store.updatePessoa(pessoa.id, { trocos: [] })
+                      }}
+                      style={{ marginTop: 4, background: '#ef4444', color: '#fff', border: 'none', borderRadius: 6, padding: '3px 8px', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>
+                      Aplicar −{fmt(trocosTotal)}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Forma de pagamento */}
+            <div style={{ display: 'flex', gap: 6, marginBottom: 8 }}>
               {[['indefinido', '❓', '#999'], ['dinheiro', '💵', '#22c55e'], ['pix', '📱', '#3b82f6']].map(([v, icon, color]) => (
-                <button key={v} onClick={() => updateExtra(e.id, { previsao: v })} style={{ flex: 1, padding: '6px 4px', border: `2px solid ${e.previsao === v ? color : '#e0d5c5'}`, borderRadius: 8, background: e.previsao === v ? color + '20' : '#fff', cursor: 'pointer', fontSize: 11, color: e.previsao === v ? color : '#999', fontWeight: e.previsao === v ? 700 : 400 }}>
+                <button key={v} onClick={() => updateExtra(e.id, { previsao: v })}
+                  style={{ flex: 1, padding: '6px 4px', border: `2px solid ${e.previsao === v ? color : '#e0d5c5'}`, borderRadius: 8, background: e.previsao === v ? color + '20' : '#fff', cursor: 'pointer', fontSize: 11, color: e.previsao === v ? color : '#999', fontWeight: e.previsao === v ? 700 : 400 }}>
                   {icon} {v === 'indefinido' ? '?' : v.charAt(0).toUpperCase() + v.slice(1)}
                 </button>
               ))}
             </div>
-            <button onClick={() => setModal({ type: 'pagar', extra: e })} style={{ ...S.btn('#c9a96e'), fontWeight: 700, width: '100%' }}>Efetuar Pagamento</button>
+
+            <button onClick={() => setModal({ type: 'pagar', extra: e })}
+              style={{ ...S.btn('#c9a96e'), fontWeight: 700, width: '100%', fontSize: 15 }}>
+              💰 Pagar {fmt(e.valor_final)}
+            </button>
           </div>
         )
       })}
-      {pagos.length > 0 && <>
-        <div style={{ fontSize: 12, color: '#999', textAlign: 'center', padding: '4px 0' }}>— Pagos —</div>
-        {pagos.map(e => (
-          <div key={e.id} style={{ ...S.card, opacity: 0.7 }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <div>
-                <div style={{ fontWeight: 600 }}>{e.nome}</div>
-                <div style={{ fontSize: 12, color: '#8a7355' }}>{e.funcao}{e.turnos ? ' · ' + e.turnos : ''}</div>
-                {e.forma_pagamento === 'pix' ? <Badge color="#3b82f6">📱 Pix</Badge> : <Badge color="#22c55e">💵 Dinheiro</Badge>}
-                {(e.trocos_descontados || []).length > 0 && (
-                  <div style={{ fontSize: 11, color: '#22c55e', marginTop: 2 }}>✓ Troco descontado: {fmt(e.trocos_descontados.reduce((a, t) => a + t.valor, 0))}</div>
-                )}
-              </div>
-              <div style={{ fontSize: 16, fontWeight: 700, color: '#22c55e' }}>{fmt(e.valor_final)}</div>
-            </div>
+
+      {/* ── PAGOS ── visual compacto e bem diferente */}
+      {pagos.length > 0 && (
+        <div style={{ marginTop: 8 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+            <div style={{ flex: 1, height: 1, background: '#22c55e40' }} />
+            <span style={{ fontSize: 11, color: '#22c55e', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.1em' }}>✓ Pagos ({pagos.length})</span>
+            <div style={{ flex: 1, height: 1, background: '#22c55e40' }} />
           </div>
-        ))}
-      </>}
+          {pagos.map(e => (
+            <div key={e.id} style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 10, padding: '8px 12px', marginBottom: 6, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div>
+                <div style={{ fontWeight: 600, fontSize: 13, color: '#166534' }}>{e.nome}</div>
+                <div style={{ fontSize: 11, color: '#15803d' }}>
+                  {e.forma_pagamento === 'pix' ? '📱 Pix' : '💵 Dinheiro'}
+                  {(e.trocos_descontados || []).length > 0 && ` · −${fmt(e.trocos_descontados.reduce((a, t) => a + t.valor, 0))} troco`}
+                </div>
+              </div>
+              <div style={{ fontSize: 15, fontWeight: 700, color: '#16a34a' }}>{fmt(e.valor_final)}</div>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   )
 }
