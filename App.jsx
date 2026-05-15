@@ -91,22 +91,14 @@ function validarChavePix(tipo, chave) {
 
 // Formata CPF enquanto digita: 000.000.000-00
 function formatarCPF(valor) {
-  const n = valor.replace(/\D/g, '').slice(0, 11)
-  if (n.length <= 3) return n
-  if (n.length <= 6) return n.slice(0,3) + '.' + n.slice(3)
-  if (n.length <= 9) return n.slice(0,3) + '.' + n.slice(3,6) + '.' + n.slice(6)
-  return n.slice(0,3) + '.' + n.slice(3,6) + '.' + n.slice(6,9) + '-' + n.slice(9)
+  return valor.replace(/[^0-9]/g, '').slice(0, 11)
 }
 
-// Formata telefone enquanto digita: (11) 99999-9999
 function formatarTelefone(valor) {
-  const n = valor.replace(/\D/g, '').slice(0, 11)
-  if (n.length <= 2) return n.length ? '(' + n : n
-  if (n.length <= 7) return '(' + n.slice(0,2) + ') ' + n.slice(2)
-  return '(' + n.slice(0,2) + ') ' + n.slice(2,7) + '-' + n.slice(7)
+  return valor.replace(/[^0-9]/g, '').slice(0, 11)
 }
 
-// Hash simples para senha (não use em sistemas bancários, ok para uso interno)
+
 async function hashSenha(senha) {
   const encoder = new TextEncoder()
   const data = encoder.encode(senha + 'araca_salt_2024')
@@ -479,7 +471,12 @@ function AppPrincipal({ usuario, onLogout }) {
 
 function TabExtras({ store, today, setModal }) {
   const { extras, pessoas, setores, removeExtra, addExtra } = store
-  const todayExtras = useMemo(() => extras.filter(e => e.data_op === today), [extras, today])
+  const todayExtras = useMemo(() => {
+    const all = extras.filter(e => e.data_op === today)
+    const naoLancados = all.filter(e => !e.lancado).sort((a,b) => a.nome.localeCompare(b.nome))
+    const lancados = all.filter(e => e.lancado).sort((a,b) => a.nome.localeCompare(b.nome))
+    return [...naoLancados, ...lancados]
+  }, [extras, today])
   const total = useMemo(() => todayExtras.reduce((a, e) => a + e.valor_final, 0), [todayExtras])
 
   const duplicar = async () => {
@@ -1006,6 +1003,7 @@ function ModalPagar({ store, extra, today, onClose }) {
   const buildPixMsg = () => {
     const ref = dayLabel(extra.data_op)
     let msg = `Pagar ${extra.nome} referente a extra de ${extra.funcao}${extra.turnos ? ' — ' + extra.turnos : ''} — valor original ${fmt(valorBase)}.`
+    if (extra.obs) msg += `\n\nObservação: ${extra.obs}`
     if (trocosSelecionados.length > 0) {
       msg += `\n\nDescontos de troco aplicados:`
       trocosSelecionados.forEach(t => { msg += `\n• ${dayLabel(t.data)}: −${fmt(t.valor)}` })
@@ -1013,6 +1011,14 @@ function ModalPagar({ store, extra, today, onClose }) {
     }
     msg += `\n\nREF: ${ref}\nTipo da chave: ${pessoa?.tipo_pix || '—'}\n\nCHAVE PIX:\n${pessoa?.chave_pix || '—'}`
     return msg
+  }
+
+  const validarPixAnviarWhatsApp = () => {
+    if (!pessoa?.chave_pix) {
+      alert('⚠️ Este funcionário não tem chave Pix cadastrada. Cadastre a chave Pix antes de enviar.')
+      return false
+    }
+    return true
   }
 
   const finalizar = async () => {
@@ -1071,6 +1077,7 @@ function ModalPagar({ store, extra, today, onClose }) {
 
       // 5. Envia Pix fora da transaction (efeito colateral)
       if (forma === 'pix') {
+        if (!validarPixAnviarWhatsApp()) { setSalvando && setSalvando(false); return }
         const numero = config?.whatsapp_pix || DEFAULT_CONFIG.whatsapp_pix
         window.open(`https://wa.me/${numero}?text=${encodeURIComponent(buildPixMsg())}`, '_blank')
       }
@@ -1100,10 +1107,27 @@ function ModalPagar({ store, extra, today, onClose }) {
       <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
 
         {/* Info do extra */}
-        <div style={{ ...S.card, background: '#f5f0e8' }}>
-          <div style={{ fontWeight: 700, fontSize: 16 }}>{extra.nome}</div>
-          <div style={{ fontSize: 13, color: '#8a7355' }}>{extra.funcao}{extra.turnos ? ' · ' + extra.turnos : ''}</div>
-          <div style={{ fontSize: 20, fontWeight: 700, color: '#c9a96e' }}>{fmt(valorBase)}</div>
+        <div style={{ background: C.bgCard2, borderRadius: 14, padding: 14, border: `1px solid ${C.border}` }}>
+          <div style={{ fontWeight: 800, fontSize: 16, color: C.text }}>{extra.nome}</div>
+          <div style={{ fontSize: 13, color: C.textMuted }}>{extra.funcao}{extra.turnos ? ' · ' + extra.turnos : ''}</div>
+          <div style={{ display: 'flex', gap: 8, marginTop: 10, flexWrap: 'wrap' }}>
+            <div style={{ flex: 1, background: C.bgCard, padding: '10px 12px', borderRadius: 10, border: `1px solid ${C.border}`, minWidth: 90 }}>
+              <div style={{ fontSize: 10, fontWeight: 700, color: C.textMuted, textTransform: 'uppercase' }}>Valor Combinado</div>
+              <div style={{ fontSize: 17, fontWeight: 900, color: C.text }}>{fmt(extra.valor_extra || valorBase)}</div>
+            </div>
+            {trocosSelecionados.length > 0 && (
+              <div style={{ flex: 1, background: '#fef2f2', padding: '10px 12px', borderRadius: 10, border: '1px solid #fecaca', minWidth: 90 }}>
+                <div style={{ fontSize: 10, fontWeight: 700, color: C.danger, textTransform: 'uppercase' }}>Desconto Troco</div>
+                <div style={{ fontSize: 17, fontWeight: 900, color: C.danger }}>−{fmt(totalTrocoSel)}</div>
+              </div>
+            )}
+            {trocosSelecionados.length > 0 && (
+              <div style={{ flex: 1, background: '#f0fdf4', padding: '10px 12px', borderRadius: 10, border: '1px solid #bbf7d0', minWidth: 90 }}>
+                <div style={{ fontSize: 10, fontWeight: 700, color: C.success, textTransform: 'uppercase' }}>A Pagar</div>
+                <div style={{ fontSize: 17, fontWeight: 900, color: C.success }}>{fmt(valorSugerido)}</div>
+              </div>
+            )}
+          </div>
         </div>
 
         {/* Trocos pendentes */}
@@ -1186,7 +1210,12 @@ function ModalPagar({ store, extra, today, onClose }) {
 
 function TabLancamentos({ store, today }) {
   const { extras, updateExtra } = store
-  const todayExtras = useMemo(() => extras.filter(e => e.data_op === today), [extras, today])
+  const todayExtras = useMemo(() => {
+    const all = extras.filter(e => e.data_op === today)
+    const naoLancados = all.filter(e => !e.lancado).sort((a,b) => a.nome.localeCompare(b.nome))
+    const lancados = all.filter(e => e.lancado).sort((a,b) => a.nome.localeCompare(b.nome))
+    return [...naoLancados, ...lancados]
+  }, [extras, today])
   const [copied, setCopied] = useState({})
   const getText = (e) => `EXTRA ${e.nome} ${e.funcao}${e.turnos ? ' ' + e.turnos : ''}`
   const copy = async (e) => {
@@ -1226,6 +1255,195 @@ function TabLancamentos({ store, today }) {
 // ─── ABA RELATÓRIOS ───────────────────────────────────────────────────────────
 
 // ─── EXPORTAR RELATÓRIO ───────────────────────────────────────────────────────
+
+// ─── EXPORTAR EXCEL ──────────────────────────────────────────────────────────
+
+function exportarExcel(pagos, pessoas, setores, config, from, to) {
+  const DIAS = ['Dom','Seg','Ter','Qua','Qui','Sex','Sáb']
+  const dl = (d) => { if (!d) return ''; const [y,m,dd] = d.split('-'); const dt = new Date(Number(y),Number(m)-1,Number(dd)); return DIAS[dt.getDay()]+' '+String(dt.getDate()).padStart(2,'0')+'/'+String(dt.getMonth()+1).padStart(2,'0') }
+  const fmt2 = (c) => ((c||0)/100).toFixed(2).replace('.',',')
+  const nomeEstab = config?.nome_estabelecimento || 'ARACÁ GRILL'
+  const periodo = from === to ? dl(from) : `${dl(from)} a ${dl(to)}`
+
+  // Monta CSV com separador ; (abre corretamente no Excel BR)
+  const rows = [
+    [`${nomeEstab} — Relatório de Extras`],
+    [`Período: ${periodo}`],
+    [`Gerado em: ${new Date().toLocaleString('pt-BR')}`],
+    [],
+    ['Data','Nome','Função','Turno','Setor','Valor Combinado','Desconto Troco','Valor Pago','Forma','Observação','Editado'],
+  ]
+
+  pagos.sort((a,b) => b.data_op.localeCompare(a.data_op)).forEach(e => {
+    const s = setores.find(x => x.id === e.setor_id)
+    const desconto = (e.trocos_descontados || []).reduce((a,t) => a+t.valor, 0)
+    rows.push([
+      dl(e.data_op),
+      e.nome,
+      e.funcao || '',
+      e.turnos || '',
+      s?.nome || '',
+      fmt2(e.valor_extra || e.valor_final),
+      fmt2(desconto),
+      fmt2(e.valor_pago || e.valor_final),
+      e.forma_pagamento === 'pix' ? 'Pix' : 'Dinheiro',
+      e.obs || '',
+      e.editado ? `Sim — ${e.editado_por}` : 'Não',
+    ])
+  })
+
+  // Linha de totais
+  rows.push([])
+  const total = pagos.reduce((a,e) => a+(e.valor_pago||e.valor_final), 0)
+  const totalPix = pagos.filter(e => e.forma_pagamento==='pix').reduce((a,e) => a+(e.valor_pago||e.valor_final), 0)
+  const totalDin = pagos.filter(e => e.forma_pagamento==='dinheiro').reduce((a,e) => a+(e.valor_pago||e.valor_final), 0)
+  rows.push(['TOTAL GERAL','','','','','',''  ,fmt2(total),'','',''])
+  rows.push(['Total Dinheiro','','','','','','',fmt2(totalDin),'','',''])
+  rows.push(['Total Pix','','','','','','',fmt2(totalPix),'','',''])
+
+  const csv = rows.map(r => r.map(c => `"${String(c).replace(/"/g,'""')}"`).join(';')).join('
+')
+  const bom = '﻿' // BOM para Excel reconhecer UTF-8
+  const blob = new Blob([bom + csv], { type: 'text/csv;charset=utf-8' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = `${nomeEstab.replace(/\s+/g,'_')}_extras_${from}_${to}.csv`
+  a.click()
+  URL.revokeObjectURL(url)
+}
+
+// ─── EXPORTAR PDF ─────────────────────────────────────────────────────────────
+
+function exportarPDF(pagos, pessoas, setores, config, from, to) {
+  const DIAS = ['Dom','Seg','Ter','Qua','Qui','Sex','Sáb']
+  const dl = (d) => { if (!d) return ''; const [y,m,dd] = d.split('-'); const dt = new Date(Number(y),Number(m)-1,Number(dd)); return DIAS[dt.getDay()]+' '+String(dt.getDate()).padStart(2,'0')+'/'+String(dt.getMonth()+1).padStart(2,'0') }
+  const fmt2 = (c) => new Intl.NumberFormat('pt-BR',{style:'currency',currency:'BRL'}).format((c||0)/100)
+  const nomeEstab = config?.nome_estabelecimento || 'ARACÁ GRILL'
+  const periodo = from === to ? dl(from) : `${dl(from)} a ${dl(to)}`
+  const total = pagos.reduce((a,e) => a+(e.valor_pago||e.valor_final), 0)
+  const totalPix = pagos.filter(e => e.forma_pagamento==='pix').reduce((a,e) => a+(e.valor_pago||e.valor_final), 0)
+  const totalDin = pagos.filter(e => e.forma_pagamento==='dinheiro').reduce((a,e) => a+(e.valor_pago||e.valor_final), 0)
+
+  // Por setor
+  const porSetor = {}
+  pagos.forEach(e => {
+    const s = setores.find(x => x.id === e.setor_id)
+    const nome = s?.nome || 'Sem setor'
+    if (!porSetor[nome]) porSetor[nome] = { total: 0, qtd: 0 }
+    porSetor[nome].total += (e.valor_pago||e.valor_final)
+    porSetor[nome].qtd++
+  })
+
+  const linhasTabela = pagos.sort((a,b) => b.data_op.localeCompare(a.data_op)).map(e => {
+    const s = setores.find(x => x.id === e.setor_id)
+    const desconto = (e.trocos_descontados||[]).reduce((a,t)=>a+t.valor,0)
+    return `
+      <tr>
+        <td>${dl(e.data_op)}</td>
+        <td><strong>${e.nome}</strong><br><span class="sub">${e.funcao||''} ${e.turnos||''}</span></td>
+        <td>${s?.nome||'—'}</td>
+        <td>${fmt2(e.valor_extra||e.valor_final)}</td>
+        <td>${desconto > 0 ? '−'+fmt2(desconto) : '—'}</td>
+        <td class="${e.forma_pagamento==='pix'?'pix':'din'}">${fmt2(e.valor_pago||e.valor_final)}</td>
+        <td class="forma">${e.forma_pagamento==='pix'?'📱 Pix':'💵 Din'}</td>
+        ${e.obs ? `<td class="obs">${e.obs}</td>` : '<td>—</td>'}
+      </tr>`
+  }).join('')
+
+  const linhasSetor = Object.entries(porSetor).sort((a,b)=>b[1].total-a[1].total).map(([nome,dados]) => `
+    <tr class="setor-row">
+      <td>${nome}</td>
+      <td>${dados.qtd} extras</td>
+      <td>${fmt2(dados.total)}</td>
+    </tr>`).join('')
+
+  const html = `<!DOCTYPE html><html lang="pt-BR"><head>
+  <meta charset="UTF-8">
+  <title>${nomeEstab} — Relatório ${periodo}</title>
+  <style>
+    * { margin:0; padding:0; box-sizing:border-box; }
+    body { font-family: 'Helvetica Neue', Arial, sans-serif; font-size: 12px; color: #18181b; background: #fff; padding: 32px; }
+    .header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 32px; padding-bottom: 20px; border-bottom: 3px solid #b5763a; }
+    .logo { font-size: 28px; font-weight: 900; color: #b5763a; letter-spacing: -0.5px; }
+    .subtitle { font-size: 13px; color: #6b6360; margin-top: 4px; }
+    .meta { text-align: right; font-size: 11px; color: #6b6360; line-height: 1.6; }
+    .cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-bottom: 32px; }
+    .card { background: #f7f6f3; border-radius: 12px; padding: 16px; border: 1px solid #e4ddd4; }
+    .card-label { font-size: 10px; font-weight: 700; color: #6b6360; text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 6px; }
+    .card-value { font-size: 22px; font-weight: 900; color: #b5763a; }
+    .card.din .card-value { color: #2e6b47; }
+    .card.pix .card-value { color: #3d6b8a; }
+    h2 { font-size: 14px; font-weight: 800; color: #18181b; text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 12px; margin-top: 28px; }
+    table { width: 100%; border-collapse: collapse; margin-bottom: 24px; }
+    th { background: #1c1917; color: #fff; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; padding: 10px 12px; text-align: left; }
+    td { padding: 10px 12px; border-bottom: 1px solid #f0ede8; font-size: 11px; vertical-align: top; }
+    tr:nth-child(even) td { background: #fafaf9; }
+    .sub { font-size: 10px; color: #6b6360; }
+    .pix { color: #3d6b8a; font-weight: 700; }
+    .din { color: #2e6b47; font-weight: 700; }
+    .forma { font-size: 11px; }
+    .obs { font-style: italic; color: #6b6360; font-size: 10px; }
+    .setor-row td { font-weight: 600; }
+    .footer { margin-top: 40px; padding-top: 16px; border-top: 1px solid #e4ddd4; font-size: 10px; color: #a8a09a; text-align: center; }
+    @media print {
+      body { padding: 16px; }
+      @page { margin: 16mm; size: A4 landscape; }
+    }
+  </style>
+  </head><body>
+  <div class="header">
+    <div>
+      <div class="logo">🔥 ${nomeEstab}</div>
+      <div class="subtitle">Relatório de Extras · ${periodo}</div>
+    </div>
+    <div class="meta">
+      Gerado em: ${new Date().toLocaleString('pt-BR')}<br>
+      Total de registros: ${pagos.length}
+    </div>
+  </div>
+
+  <div class="cards">
+    <div class="card">
+      <div class="card-label">Total Geral</div>
+      <div class="card-value">${fmt2(total)}</div>
+    </div>
+    <div class="card din">
+      <div class="card-label">💵 Dinheiro</div>
+      <div class="card-value">${fmt2(totalDin)}</div>
+    </div>
+    <div class="card pix">
+      <div class="card-label">📱 Pix</div>
+      <div class="card-value">${fmt2(totalPix)}</div>
+    </div>
+  </div>
+
+  <h2>Por Setor</h2>
+  <table>
+    <thead><tr><th>Setor</th><th>Qtd</th><th>Total</th></tr></thead>
+    <tbody>${linhasSetor}</tbody>
+  </table>
+
+  <h2>Detalhamento Completo</h2>
+  <table>
+    <thead>
+      <tr>
+        <th>Data</th><th>Profissional</th><th>Setor</th>
+        <th>Combinado</th><th>Desconto</th><th>Pago</th><th>Forma</th><th>Obs</th>
+      </tr>
+    </thead>
+    <tbody>${linhasTabela}</tbody>
+  </table>
+
+  <div class="footer">${nomeEstab} · Sistema Operacional de Extras · ${new Date().getFullYear()}</div>
+
+  <script>window.onload = () => window.print()<\/script>
+  </body></html>`
+
+  const w = window.open('', '_blank', 'width=1100,height=700')
+  w.document.write(html)
+  w.document.close()
+}
 
 function exportarRelatorio(pagos, pessoas, setores, config, from, to) {
   const DIAS = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb']
@@ -1549,16 +1767,18 @@ function TabRelatorios({ store }) {
         <div style={{ fontSize: 11, color: '#c9a96e', textTransform: 'uppercase', letterSpacing: '0.1em' }}>Dashboard Operacional</div>
         <div style={{ fontSize: 11, color: '#ffffff50', marginTop: 2 }}>Inteligência de extras em tempo real</div>
       </div>
-
-      {/* Filtro período */}
-      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 8 }}>
-        {[['hoje','Hoje'],['ontem','Ontem'],['semana','7 dias'],['mes','Mês'],['livre','📅']].map(([f, label]) => (
-          <button key={f} onClick={() => setFiltro(f)}
-            style={{ padding: '5px 10px', border: `2px solid ${filtro === f ? '#c9a96e' : '#e0d5c5'}`, borderRadius: 20, background: filtro === f ? '#c9a96e' : '#fff', color: filtro === f ? '#fff' : '#666', fontSize: 12, fontWeight: filtro === f ? 700 : 400, cursor: 'pointer' }}>
-            {label}
-          </button>
-        ))}
+      <div style={{ display: 'flex', gap: 6 }}>
+        <button onClick={() => exportarExcel(pagos, pessoas, setores, config, from, to)}
+          style={{ background: '#2e6b4733', border: '1px solid #2e6b4755', borderRadius: 8, color: '#6ee7b7', fontSize: 11, padding: '6px 10px', cursor: 'pointer', fontWeight: 700 }}>
+          📊 Excel
+        </button>
+        <button onClick={() => exportarPDF(pagos, pessoas, setores, config, from, to)}
+          style={{ background: '#a8322833', border: '1px solid #a8322855', borderRadius: 8, color: '#fca5a5', fontSize: 11, padding: '6px 10px', cursor: 'pointer', fontWeight: 700 }}>
+          📄 PDF
+        </button>
       </div>
+    </div>
+  </div>
       {filtro === 'livre' && (
         <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
           <div style={{ flex: 1 }}><label style={S.label}>De</label><input type="date" value={dataInicio} onChange={e => setDataInicio(e.target.value)} style={S.input} /></div>
@@ -2322,21 +2542,43 @@ function ModalEditarPagamento({ store, extra, onClose }) {
     if (!motivoEdicao.trim()) return alert('Informe o motivo da edição.')
     setSalvando(true)
     const novoValor = parseCents(valorDisplay)
+    const valorOriginal = extra.valor_extra || extra.valor_original || extra.valor_final
+    const trocoAnterior = extra.troco_gerado || 0
+
+    // Recalcula troco: se pagou menos ou igual ao combinado, zera troco
+    const novoTroco = novoValor > valorOriginal ? novoValor - valorOriginal : 0
+
     const alteracoes = {
       valor_final: novoValor,
+      valor_pago: novoValor,
       forma_pagamento: forma,
       obs: obs.trim(),
       editado: true,
       editado_por: usuario?.nome || 'desconhecido',
       editado_em: new Date().toISOString(),
       motivo_edicao: motivoEdicao.trim(),
+      troco_gerado: novoTroco,
     }
     await updateExtra(extra.id, alteracoes)
+
+    // Atualiza trocos do funcionário se mudou
+    if (pessoa && novoTroco !== trocoAnterior) {
+      const trocosFiltrados = (pessoa.trocos || []).filter(t =>
+        !(t.descricao && t.descricao.includes(dayLabel(extra.data_op)))
+      )
+      if (novoTroco > 0) {
+        trocosFiltrados.push({ data: extra.data_op, valor: novoTroco, descricao: `Troco editado — ${dayLabel(extra.data_op)}` })
+      }
+      await updatePessoa(pessoa.id, { trocos: trocosFiltrados })
+    }
+
     await registrarLog('edicao_pagamento', {
       extra_id: extra.id,
       nome: extra.nome,
       valor_anterior: extra.valor_final,
       valor_novo: novoValor,
+      troco_anterior: trocoAnterior,
+      troco_novo: novoTroco,
       forma_anterior: extra.forma_pagamento,
       forma_nova: forma,
       motivo: motivoEdicao.trim(),
