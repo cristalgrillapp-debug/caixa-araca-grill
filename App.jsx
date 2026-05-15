@@ -1217,6 +1217,204 @@ function TabLancamentos({ store, today }) {
 
 // ─── ABA RELATÓRIOS ───────────────────────────────────────────────────────────
 
+// ─── EXPORTAR RELATÓRIO ───────────────────────────────────────────────────────
+
+function exportarRelatorio(pagos, pessoas, setores, config, from, to) {
+  const DIAS = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb']
+  const dl = (d) => { if (!d) return ''; const [y,m,dd] = d.split('-'); const dt = new Date(Number(y),Number(m)-1,Number(dd)); return DIAS[dt.getDay()]+' '+String(dt.getDate()).padStart(2,'0')+'/'+String(dt.getMonth()+1).padStart(2,'0') }
+  const fmt2 = (c) => new Intl.NumberFormat('pt-BR',{style:'currency',currency:'BRL'}).format((c||0)/100)
+  const nomeEstab = config?.nome_estabelecimento || 'ARACÁ GRILL'
+  const periodo = from === to ? dl(from) : `${dl(from)} até ${dl(to)}`
+  const total = pagos.reduce((a,e) => a+e.valor_final, 0)
+  const totalDin = pagos.filter(e => e.forma_pagamento === 'dinheiro').reduce((a,e) => a+e.valor_final, 0)
+  const totalPix = pagos.filter(e => e.forma_pagamento === 'pix').reduce((a,e) => a+e.valor_final, 0)
+
+  // Por funcionário
+  const porFunc = {}
+  pagos.forEach(e => {
+    if (!porFunc[e.nome]) porFunc[e.nome] = { nome: e.nome, pagamentos: [], total: 0 }
+    porFunc[e.nome].pagamentos.push(e)
+    porFunc[e.nome].total += e.valor_final
+  })
+
+  // Por setor
+  const porSetor = {}
+  pagos.forEach(e => {
+    const s = setores.find(x => x.id === e.setor_id)
+    const nome = s?.nome || 'Sem setor'
+    if (!porSetor[nome]) porSetor[nome] = { nome, total: 0, qtd: 0 }
+    porSetor[nome].total += e.valor_final
+    porSetor[nome].qtd++
+  })
+
+  let txt = `${nomeEstab} — RELATÓRIO DE EXTRAS
+`
+  txt += `Período: ${periodo}
+`
+  txt += `Gerado em: ${new Date().toLocaleString('pt-BR')}
+`
+  txt += `${'═'.repeat(40)}
+
+`
+  txt += `RESUMO FINANCEIRO
+`
+  txt += `Total geral: ${fmt2(total)}
+`
+  txt += `Dinheiro: ${fmt2(totalDin)}
+`
+  txt += `Pix: ${fmt2(totalPix)}
+`
+  txt += `Qtd pagamentos: ${pagos.length}
+
+`
+
+  txt += `${'─'.repeat(40)}
+POR SETOR
+`
+  Object.values(porSetor).sort((a,b) => b.total-a.total).forEach(s => {
+    txt += `${s.nome}: ${fmt2(s.total)} (${s.qtd} extras)
+`
+  })
+
+  txt += `
+${'─'.repeat(40)}
+POR FUNCIONÁRIO
+`
+  Object.values(porFunc).sort((a,b) => b.total-a.total).forEach(p => {
+    txt += `
+${p.nome} — ${fmt2(p.total)} (${p.pagamentos.length}×)
+`
+    p.pagamentos.forEach(e => {
+      const s = setores.find(x => x.id === e.setor_id)
+      txt += `  ${dl(e.data_op)} | ${e.funcao || ''}${e.turnos ? ' '+e.turnos : ''} | ${fmt2(e.valor_final)} | ${e.forma_pagamento === 'pix' ? 'Pix' : 'Dinheiro'}`
+      if (e.obs) txt += ` | Obs: ${e.obs}`
+      if (e.editado) txt += ` | ✏️ Editado por ${e.editado_por}`
+      txt += '
+'
+    })
+  })
+
+  txt += `
+${'─'.repeat(40)}
+DETALHAMENTO COMPLETO
+`
+  pagos.sort((a,b) => b.data_op.localeCompare(a.data_op)).forEach(e => {
+    const s = setores.find(x => x.id === e.setor_id)
+    txt += `${dl(e.data_op)} | ${e.nome} | ${e.funcao || ''}${e.turnos ? ' '+e.turnos : ''} | ${s?.nome || ''} | ${fmt2(e.valor_final)} | ${e.forma_pagamento === 'pix' ? 'Pix' : 'Dinheiro'}`
+    if (e.obs) txt += ` | ${e.obs}`
+    if (e.editado) txt += ` | Editado`
+    txt += '
+'
+  })
+
+  // Download
+  const blob = new Blob([txt], { type: 'text/plain;charset=utf-8' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = `${nomeEstab.replace(/\s+/g,'_')}_extras_${from}_${to}.txt`
+  a.click()
+  URL.revokeObjectURL(url)
+}
+
+// ─── PESQUISA POR FUNCIONÁRIO ─────────────────────────────────────────────────
+
+function PesquisaFuncionario({ store, extras, setores, from, to, config }) {
+  const { pessoas } = store
+  const [busca, setBusca] = useState('')
+  const [pessoaSel, setPessoaSel] = useState(null)
+
+  const sugestoes = useMemo(() => {
+    if (!busca.trim()) return []
+    return pessoas.filter(p => p.nome.toLowerCase().includes(busca.toLowerCase())).slice(0, 6)
+  }, [busca, pessoas])
+
+  const pagamentosFunc = useMemo(() => {
+    if (!pessoaSel) return []
+    return extras.filter(e => e.pessoa_id === pessoaSel.id && e.pago && e.data_op >= from && e.data_op <= to)
+      .sort((a,b) => b.data_op.localeCompare(a.data_op))
+  }, [pessoaSel, extras, from, to])
+
+  const totalFunc = pagamentosFunc.reduce((a,e) => a+e.valor_final, 0)
+
+  return (
+    <div style={{ ...S.card, marginBottom: 12 }}>
+      <div style={{ fontSize: 13, fontWeight: 800, color: C.text, marginBottom: 10 }}>🔍 Pesquisar funcionário</div>
+      <div style={{ position: 'relative' }}>
+        <input
+          value={pessoaSel ? pessoaSel.nome : busca}
+          onChange={e => { setBusca(e.target.value); setPessoaSel(null) }}
+          style={{ ...S.input }}
+          placeholder="Digite o nome do funcionário..."
+        />
+        {sugestoes.length > 0 && !pessoaSel && (
+          <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, background: C.bgCard2, border: `1px solid ${C.border}`, borderRadius: 10, zIndex: 50, overflow: 'hidden', marginTop: 4 }}>
+            {sugestoes.map(p => (
+              <div key={p.id} onClick={() => { setPessoaSel(p); setBusca('') }}
+                style={{ padding: '10px 14px', cursor: 'pointer', borderBottom: `1px solid ${C.border}`, fontSize: 14, color: C.text }}>
+                <div style={{ fontWeight: 700 }}>{p.nome}</div>
+                <div style={{ fontSize: 11, color: C.textMuted }}>{p.funcao} {p.interno_casa ? '· 🏠 Interno' : ''}</div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {pessoaSel && (
+        <div style={{ marginTop: 12 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+            <div>
+              <div style={{ fontWeight: 800, fontSize: 15, color: C.text }}>{pessoaSel.nome}</div>
+              <div style={{ fontSize: 12, color: C.textMuted }}>{pessoaSel.funcao} · {pagamentosFunc.length} pagamentos no período</div>
+              {pessoaSel.obs_fixa && <div style={{ fontSize: 11, color: C.gold, fontStyle: 'italic' }}>⚠ {pessoaSel.obs_fixa}</div>}
+            </div>
+            <div style={{ textAlign: 'right' }}>
+              <div style={{ fontSize: 22, fontWeight: 900, color: C.primary }}>{fmt(totalFunc)}</div>
+              <button onClick={() => setPessoaSel(null)}
+                style={{ background: 'none', border: 'none', color: C.textMuted, fontSize: 11, cursor: 'pointer' }}>✕ Limpar</button>
+            </div>
+          </div>
+
+          {pagamentosFunc.length === 0 && (
+            <div style={{ textAlign: 'center', padding: 16, color: C.textMuted, fontSize: 13 }}>Nenhum pagamento no período</div>
+          )}
+
+          {pagamentosFunc.map((e, i) => {
+            const setor = setores.find(s => s.id === e.setor_id)
+            const desconto = (e.trocos_descontados || []).reduce((a,t) => a+t.valor, 0)
+            return (
+              <div key={i} style={{ padding: '10px 0', borderTop: `1px solid ${C.border}` }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                  <div>
+                    <div style={{ fontWeight: 700, fontSize: 13, color: C.text }}>{dayLabel(e.data_op)}</div>
+                    <div style={{ fontSize: 12, color: C.textMuted }}>{e.funcao}{e.turnos ? ' · '+e.turnos : ''}{setor ? ' · '+setor.nome : ''}</div>
+                    {e.obs && <div style={{ fontSize: 11, color: C.textMuted, fontStyle: 'italic', marginTop: 2 }}>📝 {e.obs}</div>}
+                    {e.editado && <div style={{ fontSize: 10, color: C.gold, marginTop: 1 }}>✏️ Editado — {e.motivo_edicao}</div>}
+                    {desconto > 0 && <div style={{ fontSize: 11, color: C.success }}>−{fmt(desconto)} troco</div>}
+                  </div>
+                  <div style={{ textAlign: 'right' }}>
+                    <div style={{ fontSize: 15, fontWeight: 800, color: C.primary }}>{fmt(e.valor_final)}</div>
+                    <Badge color={e.forma_pagamento === 'pix' ? C.secondary : C.success}>{e.forma_pagamento === 'pix' ? '📱 Pix' : '💵 Din'}</Badge>
+                  </div>
+                </div>
+              </div>
+            )
+          })}
+
+          {pagamentosFunc.length > 0 && (
+            <button
+              onClick={() => exportarRelatorio(pagamentosFunc, [pessoaSel], setores, config, from, to)}
+              style={{ ...S.btn(C.accent), marginTop: 10 }}>
+              📤 Exportar histórico de {pessoaSel.nome}
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+
 function TabRelatorios({ store }) {
   const { extras, pessoas, setores, config } = store
   const [subTela, setSubTela] = useState('geral')
@@ -1449,6 +1647,9 @@ function TabRelatorios({ store }) {
 
       {/* ─── EQUIPE ─── */}
       {subTela === 'equipe' && <>
+        {/* Pesquisa por funcionário */}
+        <PesquisaFuncionario store={store} extras={extras} setores={setores} from={from} to={to} config={config} />
+
         <div style={S.card}>
           <div style={{ fontSize: 12, fontWeight: 700, color: '#8a7355', marginBottom: 10 }}>🏠 Internos vs 🚶 Externos</div>
           <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
@@ -1678,8 +1879,10 @@ function ModalHistoricoFuncionario({ pessoa, from, to, setores, config, onClose 
                 <div>
                   <div style={{ fontWeight: 600, fontSize: 13 }}>{dayLabel(e.data_op)}</div>
                   <div style={{ fontSize: 12, color: '#8a7355' }}>{e.funcao}{e.turnos ? ' · ' + e.turnos : ''}{setor ? ' · ' + setor.nome : ''}</div>
-                  {desconto > 0 && <div style={{ fontSize: 11, color: '#22c55e' }}>−{fmt(desconto)} troco descontado</div>}
-                  {e.troco_gerado > 0 && <div style={{ fontSize: 11, color: '#f59e0b' }}>+{fmt(e.troco_gerado)} troco gerado</div>}
+                  {e.obs && <div style={{ fontSize: 11, color: C.textMuted, fontStyle: 'italic', marginTop: 2 }}>📝 {e.obs}</div>}
+                  {e.editado && <div style={{ fontSize: 10, color: C.gold, marginTop: 1 }}>✏️ Editado por {e.editado_por} — {e.motivo_edicao}</div>}
+                  {desconto > 0 && <div style={{ fontSize: 11, color: C.success }}>−{fmt(desconto)} troco descontado</div>}
+                  {e.troco_gerado > 0 && <div style={{ fontSize: 11, color: C.gold }}>+{fmt(e.troco_gerado)} troco gerado</div>}
                 </div>
                 <div style={{ textAlign: 'right' }}>
                   <div style={{ fontSize: 15, fontWeight: 700, color: '#c9a96e' }}>{fmt(e.valor_final)}</div>
