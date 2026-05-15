@@ -1,0 +1,10 @@
+[{
+  "relation": ["delegate_permission/common.handle_all_urls"],
+  "target": {
+    "namespace": "android_app",
+    "package_name": "com.aracagrill.caixa",
+    "sha256_cert_fingerprints": [
+      "3F:2F:90:8F:DC:DE:97:F1:A4:54:51:12:8F:12:E3:97:CA:8F:89:82:31:84:AF:68:89:FF:4E:8D:43:1B:0A:AA"
+    ]
+  }
+}]
