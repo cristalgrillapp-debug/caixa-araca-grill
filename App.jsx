@@ -770,7 +770,16 @@ function TabPagamentos({ store, today, setModal }) {
   const pagos = useMemo(() => extras.filter(e => e.data_op === today && e.pago).sort((a,b) => a.nome.localeCompare(b.nome)), [extras, today])
   const dinheiroTotal = useMemo(() => pendentes.filter(e => e.previsao !== 'pix').reduce((a, e) => a + e.valor_final, 0), [pendentes])
   const pixTotal = useMemo(() => pendentes.filter(e => e.previsao === 'pix').reduce((a, e) => a + e.valor_final, 0), [pendentes])
-  const notes = useMemo(() => calcNotes(dinheiroTotal), [dinheiroTotal])
+  // Soma notas calculadas individualmente por pessoa (não no total)
+  // Assim 1×R$70 + 1×R$80 = 2×R$50 + 2×R$20 + 1×R$10, não 1×R$100 + 1×R$50
+  const notes = useMemo(() => {
+    const acc = { 100: 0, 50: 0, 20: 0, 10: 0 }
+    pendentes.filter(e => e.previsao !== 'pix').forEach(e => {
+      const n = calcNotes(e.valor_final)
+      Object.keys(acc).forEach(k => { acc[k] += n[k] })
+    })
+    return acc
+  }, [pendentes])
 
   // Agrupa pendentes por setor em ordem alfabética
   const pendentesPorSetor = useMemo(() => {
