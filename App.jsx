@@ -2705,6 +2705,7 @@ function TelaLogin({ onLogin }) {
           {modo === 'login' ? 'Não tenho acesso? Solicitar cadastro' : 'Já tenho cadastro — Entrar'}
         </div>
         </div>
+      </div>
     </div>
   )
 }
