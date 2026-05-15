@@ -7,7 +7,6 @@ const parseCents = (str) => parseInt(String(str).replace(/\D/g, '') || '0', 10)
 const DIAS = ['DOM', 'SEG', 'TER', 'QUA', 'QUI', 'SEX', 'SÁB']
 const toDateStr = (d) => d.toISOString().slice(0, 10)
 
-// ── CONFIGURAÇÕES (salvas no navegador) ──
 const DEFAULT_CONFIG = {
   nome_estabelecimento: 'ARACÁ GRILL',
   whatsapp_pix: '5518996530959',
@@ -41,6 +40,9 @@ const calcNotes = (cents) => {
   ;[100, 50, 20, 10].forEach(v => { n[v] = Math.floor(rem / (v * 100)); rem = rem % (v * 100) })
   return n
 }
+
+// trocos: [{ data, valor, descricao }]
+const totalTrocos = (trocos) => (trocos || []).reduce((a, t) => a + t.valor, 0)
 
 const S = {
   app: { minHeight: '100vh', background: '#f5f0e8', fontFamily: 'Georgia, serif', maxWidth: 480, margin: '0 auto' },
@@ -127,7 +129,7 @@ export default function App() {
   const addExtra = async (data) => await addDoc(collection(db, 'extras'), data)
   const updateExtra = async (id, data) => await updateDoc(doc(db, 'extras', id), data)
   const removeExtra = async (id) => await deleteDoc(doc(db, 'extras', id))
-  const addPessoa = async (data) => await addDoc(collection(db, 'pessoas'), { ...data, ajuste_pendente: 0 })
+  const addPessoa = async (data) => await addDoc(collection(db, 'pessoas'), { ...data, trocos: [] })
   const updatePessoa = async (id, data) => await updateDoc(doc(db, 'pessoas', id), data)
   const removePessoa = async (id) => await deleteDoc(doc(db, 'pessoas', id))
   const addSetor = async (data) => await addDoc(collection(db, 'setores'), data)
@@ -135,6 +137,7 @@ export default function App() {
   const removeSetor = async (id) => await deleteDoc(doc(db, 'setores', id))
 
   const store = { extras, pessoas, setores, config, updateConfig, addExtra, updateExtra, removeExtra, addPessoa, updatePessoa, removePessoa, addSetor, updateSetor, removeSetor }
+
   const tabs = [
     { id: 'extras', icon: '👤', label: 'Extras' },
     { id: 'pagamentos', icon: '💳', label: 'Pagamentos' },
@@ -158,11 +161,11 @@ export default function App() {
         </div>
       </div>
       <div style={S.content}>
-        {tab === 'extras' && <TabExtras store={store} today={today} setModal={setModal} />}
-        {tab === 'pagamentos' && <TabPagamentos store={store} today={today} setModal={setModal} />}
+        {tab === 'extras'      && <TabExtras store={store} today={today} setModal={setModal} />}
+        {tab === 'pagamentos'  && <TabPagamentos store={store} today={today} setModal={setModal} />}
         {tab === 'lancamentos' && <TabLancamentos store={store} today={today} />}
-        {tab === 'relatorios' && <TabRelatorios store={store} />}
-        {tab === 'config' && <TabConfig store={store} setModal={setModal} />}
+        {tab === 'relatorios'  && <TabRelatorios store={store} />}
+        {tab === 'config'      && <TabConfig store={store} setModal={setModal} />}
       </div>
       <div style={S.nav}>
         {tabs.map(t => (
@@ -173,14 +176,16 @@ export default function App() {
           </button>
         ))}
       </div>
-      {modal?.type === 'addExtra' && <ModalAddExtra store={store} today={today} onClose={() => setModal(null)} />}
-      {modal?.type === 'editExtra' && <ModalEditExtra store={store} extra={modal.extra} onClose={() => setModal(null)} />}
-      {modal?.type === 'pagar' && <ModalPagar store={store} extra={modal.extra} onClose={() => setModal(null)} />}
-      {modal?.type === 'addPessoa' && <ModalAddPessoa store={store} onClose={() => setModal(null)} />}
+      {modal?.type === 'addExtra'   && <ModalAddExtra store={store} today={today} onClose={() => setModal(null)} />}
+      {modal?.type === 'editExtra'  && <ModalEditExtra store={store} extra={modal.extra} onClose={() => setModal(null)} />}
+      {modal?.type === 'pagar'      && <ModalPagar store={store} extra={modal.extra} today={today} onClose={() => setModal(null)} />}
+      {modal?.type === 'addPessoa'  && <ModalAddPessoa store={store} onClose={() => setModal(null)} />}
       {modal?.type === 'editPessoa' && <ModalEditPessoa store={store} pessoa={modal.pessoa} onClose={() => setModal(null)} />}
     </div>
   )
 }
+
+// ─── ABA EXTRAS ───────────────────────────────────────────────────────────────
 
 function TabExtras({ store, today, setModal }) {
   const { extras, pessoas, setores, removeExtra, addExtra } = store
@@ -213,6 +218,8 @@ function TabExtras({ store, today, setModal }) {
       {todayExtras.length === 0 && <div style={{ ...S.card, textAlign: 'center', padding: 32, color: '#999' }}><div style={{ fontSize: 40 }}>🍖</div><div>Nenhum extra hoje</div></div>}
       {todayExtras.map(e => {
         const setor = store.setores.find(s => s.id === e.setor_id)
+        const pessoa = store.pessoas.find(p => p.id === e.pessoa_id)
+        const trocosTotal = totalTrocos(pessoa?.trocos)
         return (
           <div key={e.id} style={S.card}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
@@ -221,6 +228,11 @@ function TabExtras({ store, today, setModal }) {
                 <div style={{ fontSize: 13, color: '#8a7355' }}>{e.funcao}{setor ? ' · ' + setor.nome : ''}</div>
                 {e.turnos && <Badge>{e.turnos}</Badge>}
                 {e.obs ? <div style={{ fontSize: 12, color: '#aaa', marginTop: 2 }}>{e.obs}</div> : null}
+                {trocosTotal > 0 && !e.pago && (
+                  <div style={{ fontSize: 11, color: '#ef4444', marginTop: 3, fontWeight: 600 }}>
+                    🔴 Troco a descontar: {fmt(trocosTotal)}
+                  </div>
+                )}
               </div>
               <div style={{ textAlign: 'right' }}>
                 <div style={{ fontSize: 18, fontWeight: 700, color: '#c9a96e' }}>{fmt(e.valor_final)}</div>
@@ -230,7 +242,7 @@ function TabExtras({ store, today, setModal }) {
             {!e.pago && (
               <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
                 <button onClick={() => setModal({ type: 'editExtra', extra: e })} style={{ background: 'none', border: '1px solid #c9a96e', borderRadius: 6, padding: '4px 12px', fontSize: 12, color: '#c9a96e', cursor: 'pointer' }}>✏️ Editar</button>
-                <button onClick={() => { if(confirm('Remover ' + e.nome + '?')) removeExtra(e.id) }} style={{ background: 'none', border: '1px solid #f0e8d8', borderRadius: 6, padding: '4px 10px', fontSize: 12, color: '#ef4444', cursor: 'pointer' }}>Remover</button>
+                <button onClick={() => { if (confirm('Remover ' + e.nome + '?')) removeExtra(e.id) }} style={{ background: 'none', border: '1px solid #f0e8d8', borderRadius: 6, padding: '4px 10px', fontSize: 12, color: '#ef4444', cursor: 'pointer' }}>Remover</button>
               </div>
             )}
           </div>
@@ -239,6 +251,8 @@ function TabExtras({ store, today, setModal }) {
     </div>
   )
 }
+
+// ─── MODAL NOVO EXTRA ─────────────────────────────────────────────────────────
 
 function ModalAddExtra({ store, today, onClose }) {
   const { pessoas, setores, addExtra } = store
@@ -262,7 +276,7 @@ function ModalAddExtra({ store, today, onClose }) {
   const save = async () => {
     if (!nome.trim()) return alert('Nome obrigatório')
     const v = parseCents(valorDisplay)
-    await addExtra({ pessoa_id: pessoaId || null, nome: nome.trim(), funcao, setor_id: setorId, data_op: today, data_real: toDateStr(new Date()), turnos, valor_original: v, valor_final: v, obs, pago: false, previsao: 'indefinido', assinatura: null, forma_pagamento: null, lancado: false })
+    await addExtra({ pessoa_id: pessoaId || null, nome: nome.trim(), funcao, setor_id: setorId, data_op: today, data_real: toDateStr(new Date()), turnos, valor_original: v, valor_final: v, obs, pago: false, previsao: 'indefinido', assinatura: null, forma_pagamento: null, lancado: false, trocos_descontados: [] })
     onClose()
   }
 
@@ -304,6 +318,8 @@ function ModalAddExtra({ store, today, onClose }) {
     </Modal>
   )
 }
+
+// ─── MODAL EDITAR EXTRA ───────────────────────────────────────────────────────
 
 function ModalEditExtra({ store, extra, onClose }) {
   const { setores, updateExtra } = store
@@ -354,6 +370,8 @@ function ModalEditExtra({ store, extra, onClose }) {
   )
 }
 
+// ─── ABA PAGAMENTOS ───────────────────────────────────────────────────────────
+
 function TabPagamentos({ store, today, setModal }) {
   const { extras, setores, pessoas, updateExtra } = store
   const pendentes = extras.filter(e => e.data_op === today && !e.pago)
@@ -382,13 +400,18 @@ function TabPagamentos({ store, today, setModal }) {
       {pendentes.map(e => {
         const setor = setores.find(s => s.id === e.setor_id)
         const pessoa = pessoas.find(p => p.id === e.pessoa_id)
+        const trocosTotal = totalTrocos(pessoa?.trocos)
         return (
           <div key={e.id} style={S.card}>
             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 10 }}>
               <div>
                 <div style={{ fontWeight: 700 }}>{e.nome}</div>
                 <div style={{ fontSize: 12, color: '#8a7355' }}>{e.funcao}{e.turnos ? ' · ' + e.turnos : ''}{setor ? ' · ' + setor.nome : ''}</div>
-                {pessoa?.ajuste_pendente > 0 && <div style={{ fontSize: 12, color: '#f59e0b' }}>⚠ Ajuste: {fmt(pessoa.ajuste_pendente)}</div>}
+                {trocosTotal > 0 && (
+                  <div style={{ fontSize: 11, color: '#ef4444', fontWeight: 600, marginTop: 2 }}>
+                    🔴 Troco pendente: {fmt(trocosTotal)}
+                  </div>
+                )}
               </div>
               <div style={{ fontSize: 18, fontWeight: 700, color: '#c9a96e' }}>{fmt(e.valor_final)}</div>
             </div>
@@ -412,6 +435,9 @@ function TabPagamentos({ store, today, setModal }) {
                 <div style={{ fontWeight: 600 }}>{e.nome}</div>
                 <div style={{ fontSize: 12, color: '#8a7355' }}>{e.funcao}{e.turnos ? ' · ' + e.turnos : ''}</div>
                 {e.forma_pagamento === 'pix' ? <Badge color="#3b82f6">📱 Pix</Badge> : <Badge color="#22c55e">💵 Dinheiro</Badge>}
+                {(e.trocos_descontados || []).length > 0 && (
+                  <div style={{ fontSize: 11, color: '#22c55e', marginTop: 2 }}>✓ Troco descontado: {fmt(e.trocos_descontados.reduce((a, t) => a + t.valor, 0))}</div>
+                )}
               </div>
               <div style={{ fontSize: 16, fontWeight: 700, color: '#22c55e' }}>{fmt(e.valor_final)}</div>
             </div>
@@ -422,27 +448,75 @@ function TabPagamentos({ store, today, setModal }) {
   )
 }
 
-function ModalPagar({ store, extra, onClose }) {
+// ─── MODAL PAGAR ──────────────────────────────────────────────────────────────
+
+function ModalPagar({ store, extra, today, onClose }) {
   const { pessoas, updateExtra, updatePessoa, config } = store
   const pessoa = pessoas.find(p => p.id === extra.pessoa_id)
+  const trocos = pessoa?.trocos || []
   const [step, setStep] = useState('escolha')
   const [forma, setForma] = useState(extra.previsao === 'pix' ? 'pix' : 'dinheiro')
   const [valorDisplay, setValorDisplay] = useState(fmt(extra.valor_final))
   const [assinatura, setAssinatura] = useState(null)
-  const [aplicarAjuste, setAplicarAjuste] = useState(false)
-  const ajuste = pessoa?.ajuste_pendente || 0
+  // quais trocos o usuário marcou para descontar
+  const [trocosSelecionados, setTrocosSelecionados] = useState([])
+
+  const valorBase = extra.valor_final
+  const totalTrocoSel = trocosSelecionados.reduce((a, t) => a + t.valor, 0)
+  const valorSugerido = Math.max(0, valorBase - totalTrocoSel)
   const valorCents = parseCents(valorDisplay)
+
+  // quando seleciona/deseleciona troco, atualiza valor sugerido no input
+  useEffect(() => {
+    setValorDisplay(fmt(valorSugerido))
+  }, [trocosSelecionados.length])
+
+  const toggleTroco = (t) => {
+    setTrocosSelecionados(prev =>
+      prev.find(x => x.data === t.data && x.valor === t.valor)
+        ? prev.filter(x => !(x.data === t.data && x.valor === t.valor))
+        : [...prev, t]
+    )
+  }
 
   const buildPixMsg = () => {
     const ref = dayLabel(extra.data_op)
-    return `Pagar ${extra.nome} referente a extra de ${extra.funcao}${extra.turnos ? ' — ' + extra.turnos : ''} — valor ${fmt(extra.valor_final)}.\n\nREF: ${ref}\nTipo da chave: ${pessoa?.tipo_pix || '—'}\n\nCHAVE PIX:\n${pessoa?.chave_pix || '—'}`
+    let msg = `Pagar ${extra.nome} referente a extra de ${extra.funcao}${extra.turnos ? ' — ' + extra.turnos : ''} — valor original ${fmt(valorBase)}.`
+    if (trocosSelecionados.length > 0) {
+      msg += `\n\nDescontos de troco aplicados:`
+      trocosSelecionados.forEach(t => { msg += `\n• ${dayLabel(t.data)}: −${fmt(t.valor)}` })
+      msg += `\n\nValor final a pagar: ${fmt(valorCents)}`
+    }
+    msg += `\n\nREF: ${ref}\nTipo da chave: ${pessoa?.tipo_pix || '—'}\n\nCHAVE PIX:\n${pessoa?.chave_pix || '—'}`
+    return msg
   }
 
   const finalizar = async () => {
-    await updateExtra(extra.id, { pago: true, forma_pagamento: forma, valor_final: valorCents, assinatura, data_pagamento: new Date().toISOString() })
-    const diff = valorCents - extra.valor_final
-    if (diff !== 0 && pessoa) await updatePessoa(pessoa.id, { ajuste_pendente: Math.max(0, ajuste + diff) })
-    if (aplicarAjuste && pessoa && ajuste > 0) await updatePessoa(pessoa.id, { ajuste_pendente: Math.max(0, ajuste - Math.min(ajuste, extra.valor_final)) })
+    // 1. Calcular novo troco se pagou a mais do que devia
+    const diff = valorCents - valorBase  // positivo = pagou a mais = novo troco
+    const novosTrocos = [...trocos.filter(t =>
+      !trocosSelecionados.find(s => s.data === t.data && s.valor === t.valor)
+    )]
+    if (diff > 0 && pessoa) {
+      novosTrocos.push({ data: today, valor: diff, descricao: `Troco do dia ${dayLabel(today)}` })
+    }
+
+    // 2. Salvar extra como pago
+    await updateExtra(extra.id, {
+      pago: true,
+      forma_pagamento: forma,
+      valor_final: valorCents,
+      valor_original: valorBase,
+      assinatura,
+      data_pagamento: new Date().toISOString(),
+      trocos_descontados: trocosSelecionados,
+      troco_gerado: diff > 0 ? diff : 0,
+    })
+
+    // 3. Atualizar trocos do funcionário
+    if (pessoa) await updatePessoa(pessoa.id, { trocos: novosTrocos })
+
+    // 4. Enviar Pix se necessário
     if (forma === 'pix') {
       const numero = config?.whatsapp_pix || DEFAULT_CONFIG.whatsapp_pix
       window.open(`https://wa.me/${numero}?text=${encodeURIComponent(buildPixMsg())}`, '_blank')
@@ -460,36 +534,79 @@ function ModalPagar({ store, extra, onClose }) {
   return (
     <Modal title="Efetuar Pagamento" onClose={onClose}>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+
+        {/* Info do extra */}
         <div style={{ ...S.card, background: '#f5f0e8' }}>
           <div style={{ fontWeight: 700, fontSize: 16 }}>{extra.nome}</div>
           <div style={{ fontSize: 13, color: '#8a7355' }}>{extra.funcao}{extra.turnos ? ' · ' + extra.turnos : ''}</div>
-          <div style={{ fontSize: 20, fontWeight: 700, color: '#c9a96e' }}>{fmt(extra.valor_final)}</div>
-          {ajuste > 0 && <div style={{ marginTop: 8, padding: 8, background: '#fef3c7', borderRadius: 6, fontSize: 12 }}>
-            ⚠ Ajuste pendente: <strong>{fmt(ajuste)}</strong>
-            <div style={{ marginTop: 4, display: 'flex', alignItems: 'center', gap: 6 }}>
-              <input type="checkbox" checked={aplicarAjuste} onChange={e => setAplicarAjuste(e.target.checked)} />
-              <span>Aplicar desconto (sugerido: {fmt(Math.max(0, extra.valor_final - ajuste))})</span>
-            </div>
-          </div>}
+          <div style={{ fontSize: 20, fontWeight: 700, color: '#c9a96e' }}>{fmt(valorBase)}</div>
         </div>
+
+        {/* Trocos pendentes */}
+        {trocos.length > 0 && (
+          <div style={{ background: '#fff5f5', border: '1px solid #fecaca', borderRadius: 10, padding: 12 }}>
+            <div style={{ fontSize: 12, fontWeight: 700, color: '#ef4444', marginBottom: 8 }}>
+              🔴 Trocos a descontar (opcional)
+            </div>
+            {trocos.map((t, i) => {
+              const sel = !!trocosSelecionados.find(s => s.data === t.data && s.valor === t.valor)
+              return (
+                <div key={i} onClick={() => toggleTroco(t)}
+                  style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '6px 0', borderBottom: i < trocos.length - 1 ? '1px solid #fee2e2' : 'none', cursor: 'pointer' }}>
+                  <div style={{ width: 18, height: 18, borderRadius: 4, border: `2px solid ${sel ? '#ef4444' : '#fca5a5'}`, background: sel ? '#ef4444' : '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                    {sel && <span style={{ color: '#fff', fontSize: 12, fontWeight: 700 }}>✓</span>}
+                  </div>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontSize: 13, color: '#b91c1c', fontWeight: 600 }}>−{fmt(t.valor)}</div>
+                    <div style={{ fontSize: 11, color: '#ef4444' }}>{dayLabel(t.data)}</div>
+                  </div>
+                </div>
+              )
+            })}
+            {trocosSelecionados.length > 0 && (
+              <div style={{ marginTop: 8, fontSize: 12, color: '#b91c1c', fontWeight: 600, textAlign: 'right' }}>
+                Total a descontar: −{fmt(totalTrocoSel)} → Sugerido: {fmt(valorSugerido)}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Forma de pagamento */}
         <div style={{ display: 'flex', gap: 8 }}>
           <button onClick={() => setForma('dinheiro')} style={{ flex: 1, padding: '12px', border: `2px solid ${forma === 'dinheiro' ? '#22c55e' : '#e0d5c5'}`, borderRadius: 10, background: forma === 'dinheiro' ? '#22c55e20' : '#fff', cursor: 'pointer', fontSize: 13, fontWeight: 700, color: forma === 'dinheiro' ? '#22c55e' : '#999' }}>💵 Dinheiro</button>
           <button onClick={() => setForma('pix')} style={{ flex: 1, padding: '12px', border: `2px solid ${forma === 'pix' ? '#3b82f6' : '#e0d5c5'}`, borderRadius: 10, background: forma === 'pix' ? '#3b82f620' : '#fff', cursor: 'pointer', fontSize: 13, fontWeight: 700, color: forma === 'pix' ? '#3b82f6' : '#999' }}>📱 Pix</button>
         </div>
-        <div><label style={S.label}>Valor pago</label>
-          <input value={valorDisplay} onChange={e => { const r = e.target.value.replace(/\D/g, ''); setValorDisplay(r ? fmt(parseInt(r)) : '') }} style={{ ...S.input, fontSize: 18, fontWeight: 700 }} inputMode="numeric" />
+
+        {/* Valor pago */}
+        <div>
+          <label style={S.label}>Valor a pagar</label>
+          <input value={valorDisplay}
+            onChange={e => { const r = e.target.value.replace(/\D/g, ''); setValorDisplay(r ? fmt(parseInt(r)) : '') }}
+            style={{ ...S.input, fontSize: 18, fontWeight: 700 }} inputMode="numeric" />
+          {parseCents(valorDisplay) > valorBase && (
+            <div style={{ fontSize: 11, color: '#ef4444', marginTop: 4, fontWeight: 600 }}>
+              ⚠ Pagando {fmt(parseCents(valorDisplay) - valorBase)} a mais → vai gerar troco para próximo pagamento
+            </div>
+          )}
         </div>
-        {forma === 'pix' && pessoa && <div style={{ ...S.card, background: '#eff6ff', border: '1px solid #bfdbfe' }}>
-          <div style={{ fontSize: 12, color: '#1e40af', fontWeight: 600, marginBottom: 4 }}>Dados do Pix</div>
-          <div style={{ fontSize: 13 }}><strong>Tipo:</strong> {pessoa.tipo_pix}</div>
-          <div style={{ fontSize: 13 }}><strong>Chave:</strong> {pessoa.chave_pix}</div>
-          <div style={{ fontSize: 11, color: '#64748b', marginTop: 4 }}>WhatsApp destino: {config?.whatsapp_pix}</div>
-        </div>}
+
+        {/* Dados Pix */}
+        {forma === 'pix' && pessoa && (
+          <div style={{ ...S.card, background: '#eff6ff', border: '1px solid #bfdbfe' }}>
+            <div style={{ fontSize: 12, color: '#1e40af', fontWeight: 600, marginBottom: 4 }}>Dados do Pix</div>
+            <div style={{ fontSize: 13 }}><strong>Tipo:</strong> {pessoa.tipo_pix}</div>
+            <div style={{ fontSize: 13 }}><strong>Chave:</strong> {pessoa.chave_pix}</div>
+            <div style={{ fontSize: 11, color: '#64748b', marginTop: 4 }}>WhatsApp: {config?.whatsapp_pix}</div>
+          </div>
+        )}
+
+        {/* Assinatura */}
         <div><label style={S.label}>Assinatura</label>
           {assinatura
             ? <div><img src={assinatura} alt="Assinatura" style={{ width: '100%', border: '1px solid #e0d5c5', borderRadius: 8 }} /><button onClick={() => setAssinatura(null)} style={{ background: 'none', border: 'none', color: '#999', fontSize: 12, cursor: 'pointer' }}>Refazer</button></div>
             : <button onClick={() => setStep('assinatura')} style={S.btn('#8a7355')}>✍️ Coletar Assinatura</button>}
         </div>
+
         <div style={{ display: 'flex', gap: 8 }}>
           <button onClick={onClose} style={S.btn('#999')}>Cancelar</button>
           <button onClick={finalizar} style={{ ...S.btn(forma === 'pix' ? '#3b82f6' : '#22c55e'), flex: 2, fontWeight: 700 }}>
@@ -500,6 +617,8 @@ function ModalPagar({ store, extra, onClose }) {
     </Modal>
   )
 }
+
+// ─── ABA LANÇAMENTOS ──────────────────────────────────────────────────────────
 
 function TabLancamentos({ store, today }) {
   const { extras, updateExtra } = store
@@ -521,6 +640,12 @@ function TabLancamentos({ store, today }) {
             <div>
               <div style={{ fontFamily: 'monospace', fontSize: 14, color: '#2d2d2d' }}>{getText(e)}</div>
               <div style={{ fontSize: 12, color: '#999', marginTop: 2 }}>{fmt(e.valor_final)} · {e.pago ? (e.forma_pagamento === 'pix' ? '📱 Pix' : '💵 Dinheiro') : '⏳ Pendente'}</div>
+              {(e.trocos_descontados || []).length > 0 && (
+                <div style={{ fontSize: 11, color: '#ef4444' }}>Troco descontado: −{fmt(e.trocos_descontados.reduce((a, t) => a + t.valor, 0))}</div>
+              )}
+              {e.troco_gerado > 0 && (
+                <div style={{ fontSize: 11, color: '#f59e0b' }}>Troco gerado: +{fmt(e.troco_gerado)}</div>
+              )}
             </div>
             <div style={{ display: 'flex', gap: 6 }}>
               <button onClick={() => copy(e)} style={{ ...S.btn(copied[e.id] ? '#22c55e' : '#c9a96e'), flex: 'none', padding: '8px 12px' }}>{copied[e.id] ? '✓' : '📋'}</button>
@@ -533,6 +658,8 @@ function TabLancamentos({ store, today }) {
     </div>
   )
 }
+
+// ─── ABA RELATÓRIOS ───────────────────────────────────────────────────────────
 
 function TabRelatorios({ store }) {
   const { extras, pessoas, setores, config } = store
@@ -549,7 +676,13 @@ function TabRelatorios({ store }) {
   const totalPix = filtered.filter(e => e.forma_pagamento === 'pix').reduce((a, e) => a + e.valor_final, 0)
   const totalDin = filtered.filter(e => e.forma_pagamento === 'dinheiro').reduce((a, e) => a + e.valor_final, 0)
   const porSetor = setores.map(s => ({ nome: s.nome, total: filtered.filter(e => e.setor_id === s.id).reduce((a, e) => a + e.valor_final, 0), qtd: filtered.filter(e => e.setor_id === s.id).length })).filter(s => s.qtd > 0).sort((a, b) => b.total - a.total)
-  const porPessoa = pessoas.map(p => ({ nome: p.nome, total: filtered.filter(e => e.pessoa_id === p.id).reduce((a, e) => a + e.valor_final, 0), qtd: filtered.filter(e => e.pessoa_id === p.id).length, ajuste: p.ajuste_pendente })).filter(p => p.qtd > 0).sort((a, b) => b.total - a.total)
+  const porPessoa = pessoas.map(p => ({
+    nome: p.nome,
+    total: filtered.filter(e => e.pessoa_id === p.id).reduce((a, e) => a + e.valor_final, 0),
+    qtd: filtered.filter(e => e.pessoa_id === p.id).length,
+    trocos: totalTrocos(p.trocos),
+    historico_trocos: p.trocos || [],
+  })).filter(p => p.qtd > 0).sort((a, b) => b.total - a.total)
 
   return (
     <div>
@@ -581,7 +714,12 @@ function TabRelatorios({ store }) {
           const setor = setores.find(s => s.id === e.setor_id)
           return <div key={e.id} style={{ ...S.card, padding: '10px 14px' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-              <div><div style={{ fontWeight: 600, fontSize: 14 }}>{e.nome}</div><div style={{ fontSize: 11, color: '#8a7355' }}>{e.funcao}{setor ? ' · ' + setor.nome : ''} · {dayLabel(e.data_op)}</div></div>
+              <div>
+                <div style={{ fontWeight: 600, fontSize: 14 }}>{e.nome}</div>
+                <div style={{ fontSize: 11, color: '#8a7355' }}>{e.funcao}{setor ? ' · ' + setor.nome : ''} · {dayLabel(e.data_op)}</div>
+                {e.troco_gerado > 0 && <div style={{ fontSize: 11, color: '#f59e0b' }}>Troco gerado: +{fmt(e.troco_gerado)}</div>}
+                {(e.trocos_descontados || []).length > 0 && <div style={{ fontSize: 11, color: '#22c55e' }}>Desconto aplicado: −{fmt(e.trocos_descontados.reduce((a, t) => a + t.valor, 0))}</div>}
+              </div>
               <div style={{ textAlign: 'right' }}><div style={{ fontSize: 15, fontWeight: 700, color: '#c9a96e' }}>{fmt(e.valor_final)}</div>{e.forma_pagamento === 'pix' ? <Badge color="#3b82f6">Pix</Badge> : <Badge color="#22c55e">Din</Badge>}</div>
             </div>
           </div>
@@ -604,7 +742,14 @@ function TabRelatorios({ store }) {
             <div>
               <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}><span style={{ fontSize: 16, fontWeight: 800, color: '#c9a96e' }}>#{i + 1}</span><span style={{ fontWeight: 700 }}>{p.nome}</span></div>
               <div style={{ fontSize: 12, color: '#999' }}>{p.qtd} extras · Média: {fmt(p.qtd ? Math.round(p.total / p.qtd) : 0)}</div>
-              {p.ajuste > 0 && <div style={{ fontSize: 12, color: '#f59e0b' }}>⚠ Ajuste: {fmt(p.ajuste)}</div>}
+              {p.trocos > 0 && (
+                <div style={{ marginTop: 4 }}>
+                  <div style={{ fontSize: 11, color: '#ef4444', fontWeight: 600 }}>🔴 Troco pendente: {fmt(p.trocos)}</div>
+                  {p.historico_trocos.map((t, j) => (
+                    <div key={j} style={{ fontSize: 11, color: '#ef4444', marginLeft: 8 }}>• {dayLabel(t.data)}: {fmt(t.valor)}</div>
+                  ))}
+                </div>
+              )}
             </div>
             <div style={{ fontSize: 20, fontWeight: 700, color: '#c9a96e' }}>{fmt(p.total)}</div>
           </div>
@@ -613,6 +758,8 @@ function TabRelatorios({ store }) {
     </div>
   )
 }
+
+// ─── MODAL ADICIONAR PESSOA ───────────────────────────────────────────────────
 
 function ModalAddPessoa({ store, onClose }) {
   const { addPessoa, setores } = store
@@ -666,6 +813,8 @@ function ModalAddPessoa({ store, onClose }) {
   )
 }
 
+// ─── MODAL EDITAR PESSOA ──────────────────────────────────────────────────────
+
 function ModalEditPessoa({ store, pessoa, onClose }) {
   const { updatePessoa, setores } = store
   const [nome, setNome] = useState(pessoa.nome)
@@ -718,6 +867,8 @@ function ModalEditPessoa({ store, pessoa, onClose }) {
   )
 }
 
+// ─── ABA CONFIG ───────────────────────────────────────────────────────────────
+
 function TabConfig({ store, setModal }) {
   const { setores, addSetor, updateSetor, removeSetor, pessoas, removePessoa, config, updateConfig } = store
   const [novoSetor, setNovoSetor] = useState('')
@@ -740,7 +891,6 @@ function TabConfig({ store, setModal }) {
 
   return (
     <div>
-      {/* Estabelecimento */}
       <div style={S.card}>
         <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 14 }}>🏠 Estabelecimento</div>
         <div style={{ marginBottom: 10 }}>
@@ -767,7 +917,6 @@ function TabConfig({ store, setModal }) {
         </button>
       </div>
 
-      {/* Setores */}
       <div style={S.card}>
         <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 12 }}>📁 Setores</div>
         {setores.map(s => (
@@ -790,7 +939,6 @@ function TabConfig({ store, setModal }) {
         </div>
       </div>
 
-      {/* Pessoas */}
       <div style={S.card}>
         <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 12 }}>👥 Pessoas ({pessoas.length})</div>
         {pessoas.length === 0 && <div style={{ fontSize: 13, color: '#999', textAlign: 'center', padding: 16 }}>Nenhuma pessoa cadastrada</div>}
@@ -803,7 +951,14 @@ function TabConfig({ store, setModal }) {
                 <div style={{ fontSize: 12, color: '#8a7355' }}>Seg-Qui: {fmt(p.val_seg_qui)} · Sex-Dom: {fmt(p.val_sex_dom)}</div>
                 <div style={{ fontSize: 12, color: '#64748b' }}>{p.tipo_pix}: {p.chave_pix}</div>
                 {p.telefone ? <div style={{ fontSize: 12, color: '#3b82f6' }}>📱 {p.telefone}</div> : null}
-                {p.ajuste_pendente > 0 && <div style={{ fontSize: 11, color: '#f59e0b' }}>⚠ Ajuste: {fmt(p.ajuste_pendente)}</div>}
+                {totalTrocos(p.trocos) > 0 && (
+                  <div style={{ fontSize: 11, color: '#ef4444', fontWeight: 600, marginTop: 2 }}>
+                    🔴 Troco pendente: {fmt(totalTrocos(p.trocos))}
+                    {(p.trocos || []).map((t, i) => (
+                      <span key={i} style={{ display: 'block', marginLeft: 8, fontWeight: 400 }}>• {dayLabel(t.data)}: {fmt(t.valor)}</span>
+                    ))}
+                  </div>
+                )}
               </div>
               <div style={{ display: 'flex', gap: 6 }}>
                 <button onClick={() => setModal({ type: 'editPessoa', pessoa: p })}
@@ -817,9 +972,8 @@ function TabConfig({ store, setModal }) {
         <button onClick={() => setModal({ type: 'addPessoa' })} style={{ ...S.btn('#6e7c8a'), marginTop: 12 }}>+ Nova Pessoa</button>
       </div>
 
-      {/* Rodapé */}
       <div style={{ ...S.card, background: '#fef3c7', border: '1px solid #f59e0b' }}>
-        <div style={{ fontSize: 12, color: '#92400e', fontWeight: 700 }}>ℹ️ {config.nome_estabelecimento} v1.1</div>
+        <div style={{ fontSize: 12, color: '#92400e', fontWeight: 700 }}>ℹ️ {config.nome_estabelecimento} v1.2</div>
         <div style={{ fontSize: 12, color: '#92400e80' }}>Sistema operacional de extras · Firebase Firestore</div>
       </div>
     </div>
