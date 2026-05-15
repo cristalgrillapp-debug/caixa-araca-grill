@@ -1776,8 +1776,6 @@ function TabRelatorios({ store }) {
           📄 PDF
         </button>
       </div>
-    </div>
-  </div>
       {filtro === 'livre' && (
         <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
           <div style={{ flex: 1 }}><label style={S.label}>De</label><input type="date" value={dataInicio} onChange={e => setDataInicio(e.target.value)} style={S.input} /></div>
