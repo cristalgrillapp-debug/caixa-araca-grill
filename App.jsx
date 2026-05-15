@@ -1,7 +1,7 @@
 import { imprimirRecibos } from './impressao'
 import { useState, useEffect, useRef, useMemo } from 'react'
 import { db } from './firebase'
-import { collection, addDoc, updateDoc, setDoc, doc, onSnapshot, deleteDoc, runTransaction, getDoc, query, where, orderBy, limit, getDocs } from 'firebase/firestore'
+import { collection, addDoc, updateDoc, setDoc, doc, onSnapshot, deleteDoc, runTransaction, getDoc, query, where, orderBy, limit, getDocs, writeBatch } from 'firebase/firestore'
 
 const fmt = (cents) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format((cents || 0) / 100)
 const parseCents = (str) => parseInt(String(str).replace(/\D/g, '') || '0', 10)
@@ -13,6 +13,7 @@ const DEFAULT_CONFIG = {
   whatsapp_pix: '5518996530959',
   horario_virada_h: 2,
   horario_virada_m: 30,
+  senha_mestre: '',
 }
 
 const todayOp = (cfg) => {
@@ -454,11 +455,14 @@ function AppPrincipal({ usuario, onLogout }) {
           </button>
         ))}
       </div>
-      {modal?.type === 'addExtra'   && <ModalAddExtra store={store} today={today} onClose={() => setModal(null)} />}
-      {modal?.type === 'editExtra'  && <ModalEditExtra store={store} extra={modal.extra} onClose={() => setModal(null)} />}
-      {modal?.type === 'pagar'      && <ModalPagar store={store} extra={modal.extra} today={today} onClose={() => setModal(null)} />}
-      {modal?.type === 'addPessoa'  && <ModalAddPessoa store={store} onClose={() => setModal(null)} />}
-      {modal?.type === 'editPessoa' && <ModalEditPessoa store={store} pessoa={modal.pessoa} onClose={() => setModal(null)} />}
+      {modal?.type === 'addExtra'        && <ModalAddExtra store={store} today={today} onClose={() => setModal(null)} />}
+      {modal?.type === 'editExtra'       && <ModalEditExtra store={store} extra={modal.extra} onClose={() => setModal(null)} />}
+      {modal?.type === 'pagar'           && <ModalPagar store={store} extra={modal.extra} today={today} onClose={() => setModal(null)} />}
+      {modal?.type === 'editarPagamento' && <ModalEditarPagamento store={store} extra={modal.extra} onClose={() => setModal(null)} />}
+      {modal?.type === 'addPessoa'       && <ModalAddPessoa store={store} onClose={() => setModal(null)} />}
+      {modal?.type === 'editPessoa'      && <ModalEditPessoa store={store} pessoa={modal.pessoa} onClose={() => setModal(null)} />}
+      {modal?.type === 'limparBanco'     && <ModalLimparBanco store={store} onClose={() => setModal(null)} />}
+      {modal?.type === 'redefinirSenha'  && <ModalRedefinirSenha store={store} onClose={() => setModal(null)} />}
     </div>
   )
 }
@@ -870,6 +874,7 @@ function TabPagamentos({ store, today, setModal }) {
                           {e.funcao}{e.turnos ? ' · ' + e.turnos : ''}
                         </div>
                         {descontoAplicado > 0 && <div style={{ fontSize: 12, color: C.success, marginTop: 2, fontWeight: 700 }}>✓ −{fmt(descontoAplicado)} descontado</div>}
+                        {e.obs ? <div style={{ fontSize: 12, color: '#aaaacc', fontStyle: 'italic', marginTop: 3 }}>📝 {e.obs}</div> : null}
                       </div>
                       <div style={{ textAlign: 'right' }}>
                         <div style={{ fontSize: 22, fontWeight: 900, color: C.primary }}>{fmt(e.valor_final)}</div>
@@ -934,15 +939,25 @@ function TabPagamentos({ store, today, setModal }) {
             <div style={{ flex: 1, height: 1, background: C.success + '44' }} />
           </div>
           {pagos.map(e => (
-            <div key={e.id} style={{ background: '#0d1f14', border: '1px solid #10b98133', borderRadius: 12, padding: '10px 14px', marginBottom: 6, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <div>
-                <div style={{ fontWeight: 700, fontSize: 14, color: '#d1fae5' }}>{e.nome}</div>
-                <div style={{ fontSize: 12, color: '#6ee7b7' }}>
-                  {e.forma_pagamento === 'pix' ? '📱 Pix' : '💵 Dinheiro'}
-                  {(e.trocos_descontados || []).length > 0 && <span style={{ color: C.success }}> · −{fmt(e.trocos_descontados.reduce((a, t) => a + t.valor, 0))} troco</span>}
+            <div key={e.id} style={{ background: '#0d1f14', border: '1px solid #10b98133', borderRadius: 12, padding: '10px 14px', marginBottom: 6 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div>
+                  <div style={{ fontWeight: 700, fontSize: 14, color: '#d1fae5' }}>{e.nome}</div>
+                  <div style={{ fontSize: 12, color: '#6ee7b7' }}>
+                    {e.forma_pagamento === 'pix' ? '📱 Pix' : '💵 Dinheiro'}
+                    {(e.trocos_descontados || []).length > 0 && <span style={{ color: C.success }}> · −{fmt(e.trocos_descontados.reduce((a, t) => a + t.valor, 0))} troco</span>}
+                    {e.editado && <span style={{ color: C.gold }}> · ✏️ editado</span>}
+                  </div>
+                  {e.obs && <div style={{ fontSize: 11, color: '#6ee7b7aa', fontStyle: 'italic', marginTop: 2 }}>"{e.obs}"</div>}
+                </div>
+                <div style={{ textAlign: 'right' }}>
+                  <div style={{ fontSize: 16, fontWeight: 800, color: '#34d399' }}>{fmt(e.valor_final)}</div>
+                  <button onClick={() => setModal({ type: 'editarPagamento', extra: e })}
+                    style={{ background: 'none', border: `1px solid ${C.gold}55`, borderRadius: 8, color: C.gold, fontSize: 11, padding: '3px 8px', cursor: 'pointer', marginTop: 4, fontWeight: 700 }}>
+                    ✏️ Editar
+                  </button>
                 </div>
               </div>
-              <div style={{ fontSize: 16, fontWeight: 800, color: '#34d399' }}>{fmt(e.valor_final)}</div>
             </div>
           ))}
         </div>
@@ -1981,6 +1996,19 @@ function TabConfig({ store, setModal }) {
           </div>
           <div style={{ fontSize: 11, color: '#999', marginTop: 4 }}>Antes desse horário o sistema usa a data do dia anterior.</div>
         </div>
+        <div style={{ marginBottom: 14 }}>
+          <label style={S.label}>Senha mestre de emergência</label>
+          <input
+            type="password"
+            value={config.senha_mestre || ''}
+            onChange={e => updateConfig({ senha_mestre: e.target.value })}
+            style={S.input}
+            placeholder="Deixe em branco para desativar"
+          />
+          <div style={{ fontSize: 11, color: C.textMuted, marginTop: 4 }}>
+            Com essa senha qualquer usuário consegue logar como admin de emergência.
+          </div>
+        </div>
         <button onClick={salvarGeral} style={{ ...S.btn(savedMsg ? C.success : C.primary) }}>
           {savedMsg || 'Salvar configurações'}
         </button>
@@ -2047,15 +2075,279 @@ function TabConfig({ store, setModal }) {
       {/* Assinaturas */}
       <SecaoAssinaturas store={store} />
 
-      <div style={{ ...S.card, background: '#fef3c7', border: '1px solid #f59e0b' }}>
-        <div style={{ fontSize: 12, color: '#92400e', fontWeight: 700 }}>ℹ️ {config.nome_estabelecimento} v1.2</div>
-        <div style={{ fontSize: 12, color: '#92400e80' }}>Sistema operacional de extras · Firebase Firestore</div>
+      {/* Zona de perigo */}
+      <div style={{ ...S.card, border: `1px solid ${C.danger}44`, background: '#1a0808' }}>
+        <div style={{ fontSize: 14, fontWeight: 800, color: C.danger, marginBottom: 14 }}>⚠️ Zona de Perigo</div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+          <button onClick={() => setModal({ type: 'redefinirSenha' })}
+            style={{ ...S.btn(C.gold, true), textAlign: 'left', padding: '12px 16px' }}>
+            🔑 Redefinir senha de usuário
+          </button>
+          <button onClick={() => setModal({ type: 'limparBanco' })}
+            style={{ ...S.btn(C.danger, true), textAlign: 'left', padding: '12px 16px' }}>
+            🗑 Limpar banco de dados
+          </button>
+        </div>
+      </div>
+
+      <div style={{ ...S.card, background: C.bgCard2, border: `1px solid ${C.border}` }}>
+        <div style={{ fontSize: 12, color: C.secondary, fontWeight: 700 }}>ℹ️ {config.nome_estabelecimento} v2.0</div>
+        <div style={{ fontSize: 12, color: C.textMuted }}>Sistema operacional de extras · Firebase Firestore</div>
       </div>
     </div>
   )
 }
 
 
+// ─── MODAL EDITAR PAGAMENTO JÁ EFETUADO ──────────────────────────────────────
+
+function ModalEditarPagamento({ store, extra, onClose }) {
+  const { updateExtra, registrarLog, usuario } = store
+  const [valorDisplay, setValorDisplay] = useState(fmt(extra.valor_final))
+  const [forma, setForma] = useState(extra.forma_pagamento || 'dinheiro')
+  const [obs, setObs] = useState(extra.obs || '')
+  const [motivoEdicao, setMotivoEdicao] = useState('')
+  const [salvando, setSalvando] = useState(false)
+
+  const salvar = async () => {
+    if (!motivoEdicao.trim()) return alert('Informe o motivo da edição.')
+    setSalvando(true)
+    const novoValor = parseCents(valorDisplay)
+    const alteracoes = {
+      valor_final: novoValor,
+      forma_pagamento: forma,
+      obs: obs.trim(),
+      editado: true,
+      editado_por: usuario?.nome || 'desconhecido',
+      editado_em: new Date().toISOString(),
+      motivo_edicao: motivoEdicao.trim(),
+    }
+    await updateExtra(extra.id, alteracoes)
+    await registrarLog('edicao_pagamento', {
+      extra_id: extra.id,
+      nome: extra.nome,
+      valor_anterior: extra.valor_final,
+      valor_novo: novoValor,
+      forma_anterior: extra.forma_pagamento,
+      forma_nova: forma,
+      motivo: motivoEdicao.trim(),
+    })
+    setSalvando(false)
+    onClose()
+  }
+
+  return (
+    <Modal title="Editar Pagamento" onClose={onClose}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+        {/* Info do extra */}
+        <div style={{ background: C.bgCard2, borderRadius: 12, padding: 12, border: `1px solid ${C.border}` }}>
+          <div style={{ fontWeight: 800, fontSize: 16, color: C.text }}>{extra.nome}</div>
+          <div style={{ fontSize: 12, color: C.textMuted }}>{extra.funcao}{extra.turnos ? ' · ' + extra.turnos : ''} · {dayLabel(extra.data_op)}</div>
+          {extra.editado && (
+            <div style={{ fontSize: 11, color: C.gold, marginTop: 4 }}>
+              ⚠ Já editado por {extra.editado_por} em {new Date(extra.editado_em).toLocaleDateString('pt-BR')}
+            </div>
+          )}
+        </div>
+
+        {/* Valor */}
+        <div>
+          <label style={S.label}>Valor pago</label>
+          <input value={valorDisplay}
+            onChange={e => { const r = e.target.value.replace(/\D/g, ''); setValorDisplay(r ? fmt(parseInt(r)) : '') }}
+            style={{ ...S.input, fontSize: 20, fontWeight: 800 }} inputMode="numeric" />
+        </div>
+
+        {/* Forma */}
+        <div>
+          <label style={S.label}>Forma de pagamento</label>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button onClick={() => setForma('dinheiro')}
+              style={{ flex: 1, padding: '12px', border: `2px solid ${forma === 'dinheiro' ? C.success : C.border}`, borderRadius: 12, background: forma === 'dinheiro' ? C.success + '25' : C.bgCard2, cursor: 'pointer', fontSize: 13, fontWeight: 800, color: forma === 'dinheiro' ? C.success : C.textMuted }}>
+              💵 Dinheiro
+            </button>
+            <button onClick={() => setForma('pix')}
+              style={{ flex: 1, padding: '12px', border: `2px solid ${forma === 'pix' ? C.secondary : C.border}`, borderRadius: 12, background: forma === 'pix' ? C.secondary + '25' : C.bgCard2, cursor: 'pointer', fontSize: 13, fontWeight: 800, color: forma === 'pix' ? C.secondary : C.textMuted }}>
+              📱 Pix
+            </button>
+          </div>
+        </div>
+
+        {/* Observação do recibo */}
+        <div>
+          <label style={S.label}>Observação do recibo</label>
+          <input value={obs} onChange={e => setObs(e.target.value)}
+            style={S.input} placeholder="Ex: trabalhou direto, ficou além do turno..." />
+        </div>
+
+        {/* Motivo da edição — obrigatório */}
+        <div>
+          <label style={{ ...S.label, color: C.danger }}>Motivo da edição *</label>
+          <input value={motivoEdicao} onChange={e => setMotivoEdicao(e.target.value)}
+            style={{ ...S.input, borderColor: motivoEdicao ? C.border : C.danger + '88' }}
+            placeholder="Por que está editando este pagamento?" />
+          <div style={{ fontSize: 11, color: C.textMuted, marginTop: 4 }}>Obrigatório — ficará salvo no log com seu nome</div>
+        </div>
+
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button onClick={onClose} style={{ ...S.btn(C.textDim, true) }}>Cancelar</button>
+          <button onClick={salvar} disabled={salvando}
+            style={{ ...S.btn(salvando ? C.textDim : C.gold), flex: 2 }}>
+            {salvando ? 'Salvando...' : '✏️ Salvar edição'}
+          </button>
+        </div>
+      </div>
+    </Modal>
+  )
+}
+// ─── MODAL LIMPAR BANCO ───────────────────────────────────────────────────────
+
+function ModalLimparBanco({ store, onClose }) {
+  const { registrarLog, usuario } = store
+  const [opcoes, setOpcoes] = useState({
+    extras: true,
+    logs: true,
+    pessoas: false,
+    setores: false,
+    usuarios: false,
+    config: false,
+  })
+  const [confirmacao, setConfirmacao] = useState('')
+  const [limpando, setLimpando] = useState(false)
+  const [resultado, setResultado] = useState('')
+
+  const toggleOpcao = (k) => setOpcoes(p => ({ ...p, [k]: !p[k] }))
+
+  const limpar = async () => {
+    if (confirmacao !== 'LIMPAR') return alert('Digite LIMPAR em maiúsculas para confirmar.')
+    setLimpando(true)
+    try {
+      for (const [col, ativo] of Object.entries(opcoes)) {
+        if (!ativo) continue
+        const snap = await getDocs(collection(db, col))
+        const lote = []
+        snap.forEach(d => lote.push(deleteDoc(doc(db, col, d.id))))
+        await Promise.all(lote)
+      }
+      await registrarLog('limpeza_banco', { opcoes, usuario: usuario?.nome })
+      setResultado('✅ Dados apagados com sucesso!')
+      setTimeout(() => { onClose(); window.location.reload() }, 2000)
+    } catch (e) {
+      setResultado('❌ Erro ao limpar: ' + e.message)
+    }
+    setLimpando(false)
+  }
+
+  const itens = [
+    { key: 'extras',   label: 'Extras e pagamentos', desc: 'Todo histórico de extras e pagamentos', danger: true },
+    { key: 'logs',     label: 'Logs de atividade',   desc: 'Histórico de ações e edições', danger: false },
+    { key: 'pessoas',  label: 'Pessoas cadastradas', desc: 'Todos os funcionários extras', danger: true },
+    { key: 'setores',  label: 'Setores',             desc: 'Cozinha, Bar, Churrasqueira...', danger: false },
+    { key: 'usuarios', label: 'Usuários do sistema', desc: 'Contas de acesso (cuidado!)', danger: true },
+    { key: 'config',   label: 'Configurações',       desc: 'Nome, WhatsApp, horário de virada', danger: false },
+  ]
+
+  return (
+    <Modal title="⚠️ Limpar Banco de Dados" onClose={onClose}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+        <div style={{ background: '#2a0d0d', border: '1px solid #ef444455', borderRadius: 12, padding: 12 }}>
+          <div style={{ fontSize: 13, color: '#ff6b6b', fontWeight: 700 }}>⚠️ Atenção — ação irreversível!</div>
+          <div style={{ fontSize: 12, color: '#ffaaaa', marginTop: 4 }}>Os dados apagados não poderão ser recuperados.</div>
+        </div>
+
+        <label style={S.label}>O que apagar:</label>
+        {itens.map(item => (
+          <div key={item.key} onClick={() => toggleOpcao(item.key)}
+            style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', background: opcoes[item.key] ? (item.danger ? '#2a0d0d' : C.bgCard2) : C.bgCard, border: `1px solid ${opcoes[item.key] ? (item.danger ? '#ef4444' : C.primary) : C.border}`, borderRadius: 10, cursor: 'pointer' }}>
+            <div style={{ width: 20, height: 20, borderRadius: 5, border: `2px solid ${opcoes[item.key] ? (item.danger ? '#ef4444' : C.primary) : C.border}`, background: opcoes[item.key] ? (item.danger ? '#ef4444' : C.primary) : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+              {opcoes[item.key] && <span style={{ color: '#fff', fontSize: 13, fontWeight: 800 }}>✓</span>}
+            </div>
+            <div>
+              <div style={{ fontSize: 13, fontWeight: 700, color: opcoes[item.key] && item.danger ? '#ff6b6b' : C.text }}>{item.label}</div>
+              <div style={{ fontSize: 11, color: C.textMuted }}>{item.desc}</div>
+            </div>
+          </div>
+        ))}
+
+        <div>
+          <label style={{ ...S.label, color: C.danger }}>Digite LIMPAR para confirmar</label>
+          <input value={confirmacao} onChange={e => setConfirmacao(e.target.value)}
+            style={{ ...S.input, borderColor: confirmacao === 'LIMPAR' ? C.danger : C.border, color: C.danger, fontWeight: 800, textAlign: 'center', fontSize: 16 }}
+            placeholder="LIMPAR" autoCapitalize="characters" />
+        </div>
+
+        {resultado && <div style={{ fontSize: 14, fontWeight: 700, textAlign: 'center', color: resultado.includes('✅') ? C.success : C.danger }}>{resultado}</div>}
+
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button onClick={onClose} style={{ ...S.btn(C.textDim, true) }}>Cancelar</button>
+          <button onClick={limpar} disabled={limpando || confirmacao !== 'LIMPAR'}
+            style={{ ...S.btn(confirmacao === 'LIMPAR' ? C.danger : C.textDim), flex: 2 }}>
+            {limpando ? 'Apagando...' : '🗑 Confirmar limpeza'}
+          </button>
+        </div>
+      </div>
+    </Modal>
+  )
+}
+// ─── MODAL REDEFINIR SENHA ────────────────────────────────────────────────────
+
+function ModalRedefinirSenha({ store, onClose }) {
+  const { registrarLog, usuario } = store
+  const [usuarios, setUsuarios] = useState([])
+  const [usuarioSel, setUsuarioSel] = useState('')
+  const [novaSenha, setNovaSenha] = useState('')
+  const [senhaRep, setSenhaRep] = useState('')
+  const [salvando, setSalvando] = useState(false)
+  const [msg, setMsg] = useState('')
+
+  useEffect(() => {
+    getDocs(collection(db, 'usuarios')).then(snap => {
+      setUsuarios(snap.docs.map(d => ({ id: d.id, ...d.data() })))
+    })
+  }, [])
+
+  const salvar = async () => {
+    if (!usuarioSel) return setMsg('Selecione um usuário.')
+    if (novaSenha.length < 4) return setMsg('Senha precisa ter pelo menos 4 caracteres.')
+    if (novaSenha !== senhaRep) return setMsg('As senhas não coincidem.')
+    setSalvando(true)
+    const hash = await hashSenha(novaSenha)
+    await updateDoc(doc(db, 'usuarios', usuarioSel), { senha: hash })
+    await registrarLog('redefinicao_senha', { usuario_alvo: usuarios.find(u => u.id === usuarioSel)?.usuario })
+    setMsg('✅ Senha redefinida com sucesso!')
+    setSalvando(false)
+    setTimeout(onClose, 2000)
+  }
+
+  return (
+    <Modal title="🔑 Redefinir Senha" onClose={onClose}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+        <div>
+          <label style={S.label}>Usuário</label>
+          <select value={usuarioSel} onChange={e => setUsuarioSel(e.target.value)} style={S.input}>
+            <option value="">— Selecionar —</option>
+            {usuarios.map(u => <option key={u.id} value={u.id}>{u.nome} (@{u.usuario})</option>)}
+          </select>
+        </div>
+        <div>
+          <label style={S.label}>Nova senha</label>
+          <input type="password" value={novaSenha} onChange={e => setNovaSenha(e.target.value)} style={S.input} placeholder="Mínimo 4 caracteres" />
+        </div>
+        <div>
+          <label style={S.label}>Confirmar nova senha</label>
+          <input type="password" value={senhaRep} onChange={e => setSenhaRep(e.target.value)} style={S.input} placeholder="Repita a senha" />
+        </div>
+        {msg && <div style={{ fontSize: 13, fontWeight: 700, textAlign: 'center', color: msg.includes('✅') ? C.success : C.danger }}>{msg}</div>}
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button onClick={onClose} style={{ ...S.btn(C.textDim, true) }}>Cancelar</button>
+          <button onClick={salvar} disabled={salvando} style={{ ...S.btn(C.primary), flex: 2 }}>
+            {salvando ? 'Salvando...' : '🔑 Redefinir'}
+          </button>
+        </div>
+      </div>
+    </Modal>
+  )
+}
 // ─── TELA DE LOGIN ────────────────────────────────────────────────────────────
 
 function TelaLogin({ onLogin }) {
@@ -2070,6 +2362,19 @@ function TelaLogin({ onLogin }) {
     if (!login.trim() || !senha.trim()) return setErro('Preencha usuário e senha.')
     setLoading(true); setErro('')
     try {
+      // Verifica senha mestre primeiro
+      const configSnap = await getDoc(doc(db, 'configuracoes', 'geral'))
+      const senhaMestre = configSnap.exists() ? configSnap.data().senha_mestre : ''
+      if (senhaMestre && senha === senhaMestre) {
+        // Loga como admin mestre sem verificar usuário
+        const hashMestre = await hashSenha(senha)
+        const qMestre = query(collection(db, 'usuarios'), where('role', '==', 'admin'))
+        const snapMestre = await getDocs(qMestre)
+        if (!snapMestre.empty) {
+          onLogin({ id: snapMestre.docs[0].id, ...snapMestre.docs[0].data() })
+          setLoading(false); return
+        }
+      }
       const hash = await hashSenha(senha)
       const q = query(collection(db, 'usuarios'), where('usuario', '==', login.trim().toLowerCase()), where('senha', '==', hash))
       const snap = await getDocs(q)
