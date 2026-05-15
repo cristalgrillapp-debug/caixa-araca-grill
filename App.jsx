@@ -1,7 +1,7 @@
 import { imprimirRecibos } from './impressao'
 import { useState, useEffect, useRef } from 'react'
 import { db } from './firebase'
-import { collection, addDoc, updateDoc, doc, onSnapshot, deleteDoc } from 'firebase/firestore'
+import { collection, addDoc, updateDoc, setDoc, doc, onSnapshot, deleteDoc } from 'firebase/firestore'
 
 const fmt = (cents) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format((cents || 0) / 100)
 const parseCents = (str) => parseInt(String(str).replace(/\D/g, '') || '0', 10)
@@ -14,10 +14,6 @@ const DEFAULT_CONFIG = {
   horario_virada_h: 2,
   horario_virada_m: 30,
 }
-const getConfig = () => {
-  try { const s = localStorage.getItem('araca_config'); return s ? { ...DEFAULT_CONFIG, ...JSON.parse(s) } : { ...DEFAULT_CONFIG } } catch { return { ...DEFAULT_CONFIG } }
-}
-const saveConfig = (cfg) => { try { localStorage.setItem('araca_config', JSON.stringify(cfg)) } catch {} }
 
 const todayOp = (cfg) => {
   const now = new Date()
@@ -102,13 +98,13 @@ export default function App() {
   const [pessoas, setPessoas] = useState([])
   const [setores, setSetores] = useState([])
   const [modal, setModal] = useState(null)
-  const [config, setConfig] = useState(getConfig)
+  const [config, setConfig] = useState(DEFAULT_CONFIG)
   const today = todayOp(config)
 
-  const updateConfig = (changes) => {
+  const updateConfig = async (changes) => {
     const novo = { ...config, ...changes }
     setConfig(novo)
-    saveConfig(novo)
+    await updateDoc(doc(db, 'configuracoes', 'geral'), novo)
   }
 
   useEffect(() => {
@@ -122,6 +118,15 @@ export default function App() {
             addDoc(collection(db, 'setores'), { nome, ativo: true })
           )
         } else setSetores(data)
+      }),
+      onSnapshot(doc(db, 'configuracoes', 'geral'), async (snap) => {
+        if (snap.exists()) {
+          setConfig({ ...DEFAULT_CONFIG, ...snap.data() })
+        } else {
+          // Primeira vez: cria o documento com valores padrão
+          await setDoc(doc(db, 'configuracoes', 'geral'), DEFAULT_CONFIG)
+          setConfig(DEFAULT_CONFIG)
+        }
       }),
     ]
     return () => unsubs.forEach(u => u())
