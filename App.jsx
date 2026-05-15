@@ -1297,8 +1297,7 @@ ${p.nome} — ${fmt2(p.total)} (${p.pagamentos.length}×)
       txt += `  ${dl(e.data_op)} | ${e.funcao || ''}${e.turnos ? ' '+e.turnos : ''} | ${fmt2(e.valor_final)} | ${e.forma_pagamento === 'pix' ? 'Pix' : 'Dinheiro'}`
       if (e.obs) txt += ` | Obs: ${e.obs}`
       if (e.editado) txt += ` | ✏️ Editado por ${e.editado_por}`
-      txt += '
-'
+      txt += '\n'
     })
   })
 
