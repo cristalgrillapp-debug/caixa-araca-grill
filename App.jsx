@@ -1,3 +1,4 @@
+import { imprimirRecibos } from './impressao'
 import { useState, useEffect, useRef } from 'react'
 import { db } from './firebase'
 import { collection, addDoc, updateDoc, doc, onSnapshot, deleteDoc } from 'firebase/firestore'
@@ -373,7 +374,7 @@ function ModalEditExtra({ store, extra, onClose }) {
 // ─── ABA PAGAMENTOS ───────────────────────────────────────────────────────────
 
 function TabPagamentos({ store, today, setModal }) {
-  const { extras, setores, pessoas, updateExtra } = store
+  const { extras, setores, pessoas, updateExtra, config } = store
   const pendentes = extras.filter(e => e.data_op === today && !e.pago)
   const pagos = extras.filter(e => e.data_op === today && e.pago)
   const dinheiroTotal = pendentes.filter(e => e.previsao !== 'pix').reduce((a, e) => a + e.valor_final, 0)
@@ -397,6 +398,21 @@ function TabPagamentos({ store, today, setModal }) {
           </div>
         </div>
       </div>
+      {/* Botões de impressão */}
+      {pagos.length > 0 && (
+        <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
+          <button
+            onClick={() => imprimirRecibos(extras, pessoas, setores, config, 'dinheiro')}
+            style={{ ...S.btn('#22c55e'), flex: 1, fontWeight: 700, fontSize: 13 }}>
+            🖨️ Imprimir Dinheiro
+          </button>
+          <button
+            onClick={() => imprimirRecibos(extras, pessoas, setores, config, 'pix')}
+            style={{ ...S.btn('#3b82f6'), flex: 1, fontWeight: 700, fontSize: 13 }}>
+            🖨️ Imprimir Pix
+          </button>
+        </div>
+      )}
       {pendentes.map(e => {
         const setor = setores.find(s => s.id === e.setor_id)
         const pessoa = pessoas.find(p => p.id === e.pessoa_id)
