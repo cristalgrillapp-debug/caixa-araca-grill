@@ -3318,13 +3318,16 @@ function ModalNovoVale({ store, today, onClose }) {
       <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
 
         <div>
-          <label style={S.label}>Funcionário *</label>
+          <label style={S.label}>Funcionário da casa *</label>
           <select value={pessoaId} onChange={e => setPessoaId(e.target.value)} style={{ ...S.input, fontWeight: pessoaId ? 700 : 400 }}>
             <option value="">— Escolha uma pessoa —</option>
-            {pessoas.sort((a,b) => a.nome.localeCompare(b.nome)).map(p => (
+            {pessoas.filter(p => p.interno_casa).sort((a,b) => a.nome.localeCompare(b.nome)).map(p => (
               <option key={p.id} value={p.id}>{p.nome} · {p.funcao}</option>
             ))}
           </select>
+          {pessoas.filter(p => p.interno_casa).length === 0 && (
+            <div style={{ fontSize: 12, color: C.gold, marginTop: 6 }}>⚠ Nenhum funcionário marcado como "da casa". Marque em Config → Pessoas.</div>
+          )}
           {pessoaId && pessoa && (
             <div style={{ marginTop: 6, padding: '8px 10px', background: '#f5f0e8', borderRadius: 8, fontSize: 12, color: '#8a7355' }}>
               ✓ {pessoa.nome} · {pessoa.funcao}
