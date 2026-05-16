@@ -339,6 +339,7 @@ function AppPrincipal({ usuario, onLogout }) {
   const [pessoas, setPessoas] = useState([])
   const [setores, setSetores] = useState([])
   const [modal, setModal] = useState(null)
+  const [vales, setVales] = useState([])
   const [config, setConfig] = useState(DEFAULT_CONFIG)
   const today = todayOp(config)
 
@@ -369,9 +370,16 @@ function AppPrincipal({ usuario, onLogout }) {
       orderBy('data_op', 'desc'),
       limit(500)
     )
+    const qVales = query(
+      collection(db, 'vales'),
+      where('data_op', '>=', dataLimite),
+      orderBy('data_op', 'desc'),
+      limit(500)
+    )
 
     const unsubs = [
       onSnapshot(qExtras, s => setExtras(s.docs.map(d => ({ id: d.id, ...d.data() })))),
+      onSnapshot(qVales, s => setVales(s.docs.map(d => ({ id: d.id, ...d.data() })))),
       onSnapshot(collection(db, 'pessoas'), s => setPessoas(s.docs.map(d => ({ id: d.id, ...d.data() })))),
       onSnapshot(collection(db, 'setores'), s => {
         const data = s.docs.map(d => ({ id: d.id, ...d.data() }))
@@ -404,6 +412,10 @@ function AppPrincipal({ usuario, onLogout }) {
   const updateSetor = async (id, data) => await updateDoc(doc(db, 'setores', id), data)
   const removeSetor = async (id) => await deleteDoc(doc(db, 'setores', id))
 
+  const addVale = async (data) => await addDoc(collection(db, 'vales'), data)
+  const updateVale = async (id, data) => await updateDoc(doc(db, 'vales', id), data)
+  const removeVale = async (id) => await deleteDoc(doc(db, 'vales', id))
+
   const registrarLog = async (acao, detalhes = {}) => {
     try {
       await addDoc(collection(db, 'logs'), {
@@ -418,12 +430,13 @@ function AppPrincipal({ usuario, onLogout }) {
     } catch (e) { console.warn('Log falhou:', e) }
   }
 
-  const store = { extras, pessoas, setores, config, updateConfig, addExtra, updateExtra, removeExtra, addPessoa, updatePessoa, removePessoa, addSetor, updateSetor, removeSetor, usuario, onLogout, registrarLog }
+  const store = { extras, vales, pessoas, setores, config, updateConfig, addExtra, updateExtra, removeExtra, addPessoa, updatePessoa, removePessoa, addSetor, updateSetor, removeSetor, addVale, updateVale, removeVale, usuario, onLogout, registrarLog }
 
   const tabs = [
     { id: 'extras', icon: '👤', label: 'Extras' },
     { id: 'pagamentos', icon: '💳', label: 'Pagamentos' },
     { id: 'lancamentos', icon: '📋', label: 'Lançamentos' },
+    { id: 'vales', icon: '💸', label: 'Vales' },
     { id: 'relatorios', icon: '📊', label: 'Dashboard' },
     ...(usuario?.role === 'admin' ? [{ id: 'config', icon: '⚙️', label: 'Config' }] : []),
   ]
@@ -458,6 +471,7 @@ function AppPrincipal({ usuario, onLogout }) {
         {tab === 'extras'      && <TabExtras store={store} today={today} setModal={setModal} />}
         {tab === 'pagamentos'  && <TabPagamentos store={store} today={today} setModal={setModal} />}
         {tab === 'lancamentos' && <TabLancamentos store={store} today={today} />}
+        {tab === 'vales'      && <TabVales store={store} today={today} setModal={setModal} />}
         {tab === 'relatorios'  && <TabRelatorios store={store} />}
         {tab === 'config'      && <TabConfig store={store} setModal={setModal} />}
       </div>
@@ -489,6 +503,7 @@ function AppPrincipal({ usuario, onLogout }) {
       {modal?.type === 'editPessoa'      && <ModalEditPessoa store={store} pessoa={modal.pessoa} onClose={() => setModal(null)} />}
       {modal?.type === 'limparBanco'     && <ModalLimparBanco store={store} onClose={() => setModal(null)} />}
       {modal?.type === 'redefinirSenha'  && <ModalRedefinirSenha store={store} onClose={() => setModal(null)} />}
+      {modal?.type === 'addVale'         && <ModalNovoVale store={store} today={today} onClose={() => setModal(null)} />}
     </div>
   )
 }
@@ -1435,21 +1450,21 @@ function exportarPDF(pagos, pessoas, setores, config, from, to) {
   <title>${nomeEstab} — Relatório ${periodo}</title>
   <style>
     * { margin:0; padding:0; box-sizing:border-box; }
-    body { font-family: 'Helvetica Neue', Arial, sans-serif; font-size: 12px; color: #18181b; background: #fff; padding: 32px; }
-    .header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 32px; padding-bottom: 20px; border-bottom: 3px solid #b5763a; }
+    body { font-family: 'Helvetica Neue', Arial, sans-serif; font-size: 12px; color: #18181b; background: #fff; padding: 16px; }
+    .header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 16px; padding-bottom: 12px; border-bottom: 3px solid #b5763a; }
     .logo { font-size: 28px; font-weight: 900; color: #b5763a; letter-spacing: -0.5px; }
     .subtitle { font-size: 13px; color: #6b6360; margin-top: 4px; }
     .meta { text-align: right; font-size: 11px; color: #6b6360; line-height: 1.6; }
-    .cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-bottom: 32px; }
-    .card { background: #f7f6f3; border-radius: 12px; padding: 16px; border: 1px solid #e4ddd4; }
-    .card-label { font-size: 10px; font-weight: 700; color: #6b6360; text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 6px; }
-    .card-value { font-size: 22px; font-weight: 900; color: #b5763a; }
+    .cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 16px; }
+    .card { background: #f7f6f3; border-radius: 12px; padding: 12px; border: 1px solid #e4ddd4; }
+    .card-label { font-size: 10px; font-weight: 700; color: #6b6360; text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 4px; }
+    .card-value { font-size: 20px; font-weight: 900; color: #b5763a; }
     .card.din .card-value { color: #2e6b47; }
     .card.pix .card-value { color: #3d6b8a; }
-    h2 { font-size: 14px; font-weight: 800; color: #18181b; text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 12px; margin-top: 28px; }
-    table { width: 100%; border-collapse: collapse; margin-bottom: 24px; }
-    th { background: #1c1917; color: #fff; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; padding: 10px 12px; text-align: left; }
-    td { padding: 10px 12px; border-bottom: 1px solid #f0ede8; font-size: 11px; vertical-align: top; }
+    h2 { font-size: 13px; font-weight: 800; color: #18181b; text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 8px; margin-top: 14px; }
+    table { width: 100%; border-collapse: collapse; margin-bottom: 12px; }
+    th { background: #1c1917; color: #fff; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; padding: 7px 10px; text-align: left; }
+    td { padding: 6px 10px; border-bottom: 1px solid #f0ede8; font-size: 11px; vertical-align: top; }
     tr:nth-child(even) td { background: #fafaf9; }
     .sub { font-size: 10px; color: #6b6360; }
     .pix { color: #3d6b8a; font-weight: 700; }
@@ -1457,10 +1472,10 @@ function exportarPDF(pagos, pessoas, setores, config, from, to) {
     .forma { font-size: 11px; }
     .obs { font-style: italic; color: #6b6360; font-size: 10px; }
     .setor-row td { font-weight: 600; }
-    .footer { margin-top: 40px; padding-top: 16px; border-top: 1px solid #e4ddd4; font-size: 10px; color: #a8a09a; text-align: center; }
+    .footer { margin-top: 20px; padding-top: 10px; border-top: 1px solid #e4ddd4; font-size: 10px; color: #a8a09a; text-align: center; }
     @media print {
-      body { padding: 16px; }
-      @page { margin: 16mm; size: A4 landscape; }
+      body { padding: 8px; }
+      @page { margin: 10mm; size: A4 landscape; }
     }
   </style>
   </head><body>
@@ -1849,17 +1864,6 @@ function TabRelatorios({ store }) {
           📄 PDF
         </button>
       </div>
-
-      {/* Filtro de período */}
-      <div style={{ display: 'flex', gap: 4, marginBottom: 10, marginTop: 10, flexWrap: 'wrap' }}>
-        {[['hoje','Hoje'],['ontem','Ontem'],['semana','7 dias'],['mes','Mês'],['livre','Livre']].map(([id, label]) => (
-          <button key={id} onClick={() => setFiltro(id)}
-            style={{ padding: '6px 12px', border: `2px solid ${filtro === id ? C.primary : C.border}`, borderRadius: 20, background: filtro === id ? C.primary : C.bgCard, color: filtro === id ? '#fff' : C.textMuted, fontSize: 12, fontWeight: filtro === id ? 700 : 400, cursor: 'pointer' }}>
-            {label}
-          </button>
-        ))}
-      </div>
-
       {filtro === 'livre' && (
         <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
           <div style={{ flex: 1 }}><label style={S.label}>De</label><input type="date" value={dataInicio} onChange={e => setDataInicio(e.target.value)} style={S.input} /></div>
@@ -3101,5 +3105,301 @@ function SecaoUsuarios() {
         ))}
       </>}
     </div>
+  )
+}
+
+// ─── ABA VALES ────────────────────────────────────────────────────────────────
+
+function TabVales({ store, today, setModal }) {
+  const { vales, pessoas, setores, updateVale, removeVale } = store
+  const [filtro, setFiltro] = useState('hoje')
+  const [dataInicio, setDataInicio] = useState(today)
+  const [dataFim, setDataFim] = useState(today)
+  const [copied, setCopied] = useState({})
+
+  const ontem = toDateStr(new Date(new Date(today + 'T12:00:00').getTime() - 86400000))
+  const weekStart = toDateStr(new Date(new Date(today + 'T12:00:00').setDate(new Date(today + 'T12:00:00').getDate() - 6)))
+  const monthStart = today.slice(0, 7) + '-01'
+  const ranges = { hoje: [today, today], ontem: [ontem, ontem], semana: [weekStart, today], mes: [monthStart, today], livre: [dataInicio, dataFim] }
+  const [from, to] = ranges[filtro] || [today, today]
+
+  const valesFiltrados = useMemo(() =>
+    vales.filter(v => v.data_op >= from && v.data_op <= to)
+      .sort((a, b) => b.data_op.localeCompare(a.data_op) || a.nome.localeCompare(b.nome)),
+    [vales, from, to]
+  )
+
+  const totalVales = useMemo(() => valesFiltrados.reduce((a, v) => a + v.valor, 0), [valesFiltrados])
+  const totalDin = useMemo(() => valesFiltrados.filter(v => v.forma_pagamento === 'dinheiro').reduce((a, v) => a + v.valor, 0), [valesFiltrados])
+  const totalPix = useMemo(() => valesFiltrados.filter(v => v.forma_pagamento === 'pix').reduce((a, v) => a + v.valor, 0), [valesFiltrados])
+
+  const getText = (v) => `VALE ${v.nome} ${v.funcao || ''}`
+  const copy = async (v) => {
+    try { await navigator.clipboard.writeText(getText(v)) } catch {}
+    setCopied(p => ({ ...p, [v.id]: true }))
+    setTimeout(() => setCopied(p => ({ ...p, [v.id]: false })), 2000)
+  }
+
+  return (
+    <div>
+      <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
+        <button onClick={() => setModal({ type: 'addVale' })} style={{ ...S.btn(C.gold), flex: 1 }}>💸 Novo Vale</button>
+      </div>
+
+      <div style={{ ...S.card, background: 'linear-gradient(135deg,#1a1200,#2d2000)', color: '#fff' }}>
+        <div style={{ fontSize: 11, color: '#c9a96e', textTransform: 'uppercase' }}>Total de Vales</div>
+        <div style={{ fontSize: 28, fontWeight: 700, color: '#c9a96e' }}>{fmt(totalVales)}</div>
+        <div style={{ display: 'flex', gap: 16, marginTop: 6 }}>
+          <div style={{ fontSize: 12, color: '#ffffff80' }}>💵 {fmt(totalDin)}</div>
+          <div style={{ fontSize: 12, color: '#ffffff80' }}>📱 {fmt(totalPix)}</div>
+          <div style={{ fontSize: 12, color: '#ffffff50' }}>{valesFiltrados.length} vale{valesFiltrados.length !== 1 ? 's' : ''}</div>
+        </div>
+      </div>
+
+      {/* Filtro de período */}
+      <div style={{ display: 'flex', gap: 4, marginBottom: 10, flexWrap: 'wrap' }}>
+        {[['hoje','Hoje'],['ontem','Ontem'],['semana','7 dias'],['mes','Mês'],['livre','Livre']].map(([id, label]) => (
+          <button key={id} onClick={() => setFiltro(id)}
+            style={{ padding: '6px 12px', border: `2px solid ${filtro === id ? C.gold : C.border}`, borderRadius: 20, background: filtro === id ? C.gold : C.bgCard, color: filtro === id ? '#fff' : C.textMuted, fontSize: 12, fontWeight: filtro === id ? 700 : 400, cursor: 'pointer' }}>
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {filtro === 'livre' && (
+        <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
+          <div style={{ flex: 1 }}><label style={S.label}>De</label><input type="date" value={dataInicio} onChange={e => setDataInicio(e.target.value)} style={S.input} /></div>
+          <div style={{ flex: 1 }}><label style={S.label}>Até</label><input type="date" value={dataFim} onChange={e => setDataFim(e.target.value)} style={S.input} /></div>
+        </div>
+      )}
+
+      <div style={{ ...S.card, background: '#f5f0e8', marginBottom: 12 }}>
+        <div style={{ fontSize: 13, color: '#8a7355' }}>Copie o texto e cole no sistema interno. O valor deve ser lançado manualmente.</div>
+      </div>
+
+      {valesFiltrados.length === 0 && (
+        <div style={{ ...S.card, textAlign: 'center', padding: 32, color: '#999' }}>
+          <div style={{ fontSize: 40 }}>💸</div>
+          <div>Nenhum vale no período</div>
+        </div>
+      )}
+
+      {valesFiltrados.map(v => {
+        const setor = setores.find(s => s.id === v.setor_id)
+        return (
+          <div key={v.id} style={S.card}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+              <div>
+                <div style={{ fontWeight: 700, fontSize: 16 }}>{v.nome}</div>
+                <div style={{ fontSize: 13, color: '#8a7355' }}>{v.funcao}{setor ? ' · ' + setor.nome : ''}</div>
+                <div style={{ fontSize: 12, color: C.textMuted, marginTop: 2 }}>{dayLabel(v.data_op)}</div>
+                {v.obs && <div style={{ fontSize: 12, color: '#aaa', marginTop: 2 }}>{v.obs}</div>}
+                <div style={{ marginTop: 6 }}>
+                  <Badge color={v.forma_pagamento === 'pix' ? C.secondary : C.success}>
+                    {v.forma_pagamento === 'pix' ? '📱 Pix' : '💵 Dinheiro'}
+                  </Badge>
+                </div>
+              </div>
+              <div style={{ textAlign: 'right' }}>
+                <div style={{ fontSize: 20, fontWeight: 700, color: C.gold }}>{fmt(v.valor)}</div>
+                {v.lancado ? <Badge color={C.success}>✓ Lançado</Badge> : <Badge color="#f59e0b">Não lançado</Badge>}
+              </div>
+            </div>
+            <div style={{ display: 'flex', gap: 6, marginTop: 10 }}>
+              <button onClick={() => copy(v)}
+                style={{ ...S.btn(copied[v.id] ? '#22c55e' : C.gold, !copied[v.id]), flex: 'none', padding: '8px 14px' }}>
+                {copied[v.id] ? '✓' : '📋'}
+              </button>
+              <button onClick={() => updateVale(v.id, { lancado: !v.lancado })}
+                style={{ ...S.btn(v.lancado ? '#22c55e' : '#e0d5c5'), flex: 'none', padding: '8px 14px', color: v.lancado ? '#fff' : '#666' }}>
+                {v.lancado ? '✓' : '○'}
+              </button>
+              <button onClick={() => { if (confirm('Remover vale de ' + v.nome + '?')) removeVale(v.id) }}
+                style={{ background: 'none', border: '1px solid #f0e8d8', borderRadius: 12, padding: '8px 14px', fontSize: 13, color: '#ef4444', cursor: 'pointer' }}>
+                🗑
+              </button>
+            </div>
+            {v.assinatura && (
+              <img src={v.assinatura} alt="Ass." style={{ maxHeight: 36, marginTop: 8, border: '1px solid #e0d5c5', borderRadius: 4 }} />
+            )}
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
+// ─── MODAL NOVO VALE ──────────────────────────────────────────────────────────
+
+function ModalNovoVale({ store, today, onClose }) {
+  const { pessoas, setores, addVale, config } = store
+  const [pessoaId, setPessoaId] = useState('')
+  const [funcao, setFuncao] = useState('')
+  const [setorId, setSetorId] = useState('')
+  const [valorDisplay, setValorDisplay] = useState('')
+  const [forma, setForma] = useState('dinheiro')
+  const [obs, setObs] = useState('')
+  const [assinatura, setAssinatura] = useState(null)
+  const [step, setStep] = useState('form')
+  const [salvando, setSalvando] = useState(false)
+
+  const pessoa = pessoas.find(p => p.id === pessoaId)
+
+  useEffect(() => {
+    if (!pessoa) return
+    setFuncao(pessoa.funcao || '')
+    setSetorId(pessoa.setor_id || '')
+  }, [pessoaId])
+
+  const buildPixMsg = () => {
+    const v = parseCents(valorDisplay)
+    let msg = `💸 VALE — ${pessoa?.nome || '?'}`
+    if (funcao) msg += ` · ${funcao}`
+    msg += `\nValor: ${fmt(v)}`
+    msg += `\nData: ${dayLabel(today)}`
+    if (obs) msg += `\nObs: ${obs}`
+    msg += `\n\nTipo da chave: ${pessoa?.tipo_pix || '—'}\n\nCHAVE PIX:\n${pessoa?.chave_pix || '—'}`
+    return msg
+  }
+
+  const save = async () => {
+    if (!pessoaId) return alert('Selecione uma pessoa.')
+    const v = parseCents(valorDisplay)
+    if (!v || v < 100) return alert('Informe um valor válido (mínimo R$1,00).')
+    setSalvando(true)
+    try {
+      let assinaturaUrl = null
+      if (assinatura) assinaturaUrl = await uploadAssinatura('vale_' + Date.now(), assinatura)
+
+      await addVale({
+        pessoa_id:       pessoaId,
+        nome:            pessoa?.nome || '',
+        funcao,
+        setor_id:        setorId,
+        data_op:         today,
+        data_real:       toDateStr(new Date()),
+        obs,
+        valor:           v,
+        forma_pagamento: forma,
+        assinatura:      assinaturaUrl,
+        lancado:         false,
+        data_pagamento:  new Date().toISOString(),
+      })
+
+      if (forma === 'pix') {
+        if (!pessoa?.chave_pix) {
+          alert('⚠️ Este funcionário não tem chave Pix cadastrada.')
+        } else {
+          const numero = config?.whatsapp_pix || DEFAULT_CONFIG.whatsapp_pix
+          window.open(`https://wa.me/${numero}?text=${encodeURIComponent(buildPixMsg())}`, '_blank')
+        }
+      }
+
+      onClose()
+    } catch (err) {
+      alert('Erro ao registrar vale. Tente novamente.')
+      console.error(err)
+    }
+    setSalvando(false)
+  }
+
+  if (step === 'assinatura') return (
+    <Modal title="Assinatura" onClose={onClose}>
+      <div style={{ marginBottom: 12 }}>
+        <div style={{ fontWeight: 600 }}>{pessoa?.nome}</div>
+        <div style={{ fontSize: 13, color: '#8a7355' }}>{fmt(parseCents(valorDisplay))} · Vale</div>
+      </div>
+      <SignaturePad onSave={sig => { setAssinatura(sig); setStep('form') }} onCancel={() => setStep('form')} />
+    </Modal>
+  )
+
+  return (
+    <Modal title="💸 Novo Vale" onClose={onClose}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+
+        <div>
+          <label style={S.label}>Funcionário *</label>
+          <select value={pessoaId} onChange={e => setPessoaId(e.target.value)} style={{ ...S.input, fontWeight: pessoaId ? 700 : 400 }}>
+            <option value="">— Escolha uma pessoa —</option>
+            {pessoas.sort((a,b) => a.nome.localeCompare(b.nome)).map(p => (
+              <option key={p.id} value={p.id}>{p.nome} · {p.funcao}</option>
+            ))}
+          </select>
+          {pessoaId && pessoa && (
+            <div style={{ marginTop: 6, padding: '8px 10px', background: '#f5f0e8', borderRadius: 8, fontSize: 12, color: '#8a7355' }}>
+              ✓ {pessoa.nome} · {pessoa.funcao}
+              {pessoa.chave_pix && <><br />{pessoa.tipo_pix}: {pessoa.chave_pix}</>}
+            </div>
+          )}
+        </div>
+
+        <div style={{ display: 'flex', gap: 8 }}>
+          <div style={{ flex: 1 }}>
+            <label style={S.label}>Função</label>
+            <input value={funcao} onChange={e => setFuncao(e.target.value)} style={S.input} placeholder="Garçom..." />
+          </div>
+          <div style={{ flex: 1 }}>
+            <label style={S.label}>Setor</label>
+            <select value={setorId} onChange={e => setSetorId(e.target.value)} style={S.input}>
+              <option value="">—</option>
+              {setores.filter(s => s.ativo).map(s => <option key={s.id} value={s.id}>{s.nome}</option>)}
+            </select>
+          </div>
+        </div>
+
+        <div>
+          <label style={S.label}>Valor *</label>
+          <input value={valorDisplay}
+            onChange={e => { const r = e.target.value.replace(/\D/g, ''); setValorDisplay(r ? fmt(parseInt(r)) : '') }}
+            style={{ ...S.input, fontSize: 18, fontWeight: 700 }} placeholder="R$ 0,00" inputMode="numeric" />
+        </div>
+
+        <div>
+          <label style={S.label}>Forma de pagamento</label>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button onClick={() => setForma('dinheiro')}
+              style={{ flex: 1, padding: '12px', border: `2px solid ${forma === 'dinheiro' ? '#22c55e' : C.border}`, borderRadius: 10, background: forma === 'dinheiro' ? '#22c55e20' : C.bgCard2, cursor: 'pointer', fontSize: 13, fontWeight: 700, color: forma === 'dinheiro' ? '#22c55e' : C.textMuted }}>
+              💵 Dinheiro
+            </button>
+            <button onClick={() => setForma('pix')}
+              style={{ flex: 1, padding: '12px', border: `2px solid ${forma === 'pix' ? '#3b82f6' : C.border}`, borderRadius: 10, background: forma === 'pix' ? '#3b82f620' : C.bgCard2, cursor: 'pointer', fontSize: 13, fontWeight: 700, color: forma === 'pix' ? '#3b82f6' : C.textMuted }}>
+              📱 Pix
+            </button>
+          </div>
+        </div>
+
+        {forma === 'pix' && pessoa?.chave_pix && (
+          <div style={{ ...S.card, background: '#eff6ff', border: '1px solid #bfdbfe' }}>
+            <div style={{ fontSize: 12, color: '#1e40af', fontWeight: 600, marginBottom: 4 }}>Dados do Pix</div>
+            <div style={{ fontSize: 13 }}><strong>Tipo:</strong> {pessoa.tipo_pix}</div>
+            <div style={{ fontSize: 13 }}><strong>Chave:</strong> {pessoa.chave_pix}</div>
+          </div>
+        )}
+
+        <div>
+          <label style={S.label}>Observação</label>
+          <input value={obs} onChange={e => setObs(e.target.value)} style={S.input} placeholder="Opcional..." />
+        </div>
+
+        <div>
+          <label style={S.label}>Assinatura</label>
+          {assinatura
+            ? <div>
+                <img src={assinatura} alt="Assinatura" style={{ width: '100%', border: '1px solid #e0d5c5', borderRadius: 8 }} />
+                <button onClick={() => setAssinatura(null)} style={{ background: 'none', border: 'none', color: '#999', fontSize: 12, cursor: 'pointer' }}>Refazer</button>
+              </div>
+            : <button onClick={() => setStep('assinatura')} style={S.btn('#8a7355')}>✍️ Coletar Assinatura</button>
+          }
+        </div>
+
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button onClick={onClose} style={{ ...S.btn(C.textDim, true) }}>Cancelar</button>
+          <button onClick={save} disabled={salvando}
+            style={{ ...S.btn(salvando ? C.textDim : C.gold), flex: 2, fontWeight: 700 }}>
+            {salvando ? 'Salvando...' : forma === 'pix' ? '📱 Registrar e Enviar Pix' : '💸 Registrar Vale'}
+          </button>
+        </div>
+      </div>
+    </Modal>
   )
 }
