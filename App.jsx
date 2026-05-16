@@ -1008,7 +1008,7 @@ function TabPagamentos({ store, today, setModal }) {
       )}
       </div>
     </div>
-    </div>
+  </div>
     </div>
   )
 }
