@@ -34,9 +34,9 @@ const dayLabel = (dateStr) => {
 }
 const isWeekend = (dateStr) => { const d = new Date(dateStr + 'T12:00:00'); return [5, 6, 0].includes(d.getDay()) }
 const calcNotes = (cents) => {
-  let rem = cents
-  const n = { 100: 0, 50: 0, 20: 0, 10: 0 }
-  ;[100, 50, 20, 10].forEach(v => { n[v] = Math.floor(rem / (v * 100)); rem = rem % (v * 100) })
+  let rem = Math.round(cents / 100)
+  const n = { 100: 0, 50: 0, 20: 0, 10: 0, 5: 0 }
+  ;[100, 50, 20, 10, 5].forEach(v => { n[v] = Math.floor(rem / v); rem = rem % v })
   return n
 }
 
@@ -913,7 +913,14 @@ function TabPagamentos({ store, today, setModal }) {
   const pagos = useMemo(() => extras.filter(e => e.data_op === today && e.pago).sort((a,b) => a.nome.localeCompare(b.nome)), [extras, today])
   const dinheiroTotal = useMemo(() => pendentes.filter(e => e.previsao !== 'pix').reduce((a, e) => a + e.valor_final, 0), [pendentes])
   const pixTotal = useMemo(() => pendentes.filter(e => e.previsao === 'pix').reduce((a, e) => a + e.valor_final, 0), [pendentes])
-  const notes = useMemo(() => calcNotes(dinheiroTotal), [dinheiroTotal])
+  const notes = useMemo(() => {
+    const total = { 100: 0, 50: 0, 20: 0, 10: 0, 5: 0 }
+    pendentes.filter(e => e.previsao !== 'pix').forEach(e => {
+      const n = calcNotes(e.valor_final)
+      Object.keys(total).forEach(k => { total[k] += n[Number(k)] || 0 })
+    })
+    return total
+  }, [pendentes])
   const pendentesPorSetor = useMemo(() => {
     const sem = { id: '__sem__', nome: 'Sem setor' }
     const map = {}
@@ -932,7 +939,7 @@ function TabPagamentos({ store, today, setModal }) {
   }, [pendentesPorSetor.length])
   const toggleSetor = (id) => setSetoresAbertos(prev => ({ ...prev, [id]: !prev[id] }))
 
-  const coresNotas = { 100: { bg: '#1e3a5f', label: '#60a5fa', emoji: '💙' }, 50: { bg: '#3d1f00', label: '#fb923c', emoji: '🟠' }, 20: { bg: '#3d3000', label: '#fbbf24', emoji: '🟡' }, 10: { bg: '#3d0a2e', label: '#f472b6', emoji: '🩷' } }
+  const coresNotas = { 100: { bg: '#1e3a5f', label: '#60a5fa', emoji: '💙' }, 50: { bg: '#3d1f00', label: '#fb923c', emoji: '🟠' }, 20: { bg: '#3d3000', label: '#fbbf24', emoji: '🟡' }, 10: { bg: '#3d0a2e', label: '#f472b6', emoji: '🩷' }, 5: { bg: '#1a2e1a', label: '#4ade80', emoji: '💚' } }
 
   return (
     <div>
