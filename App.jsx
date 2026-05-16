@@ -1008,8 +1008,8 @@ function TabPagamentos({ store, today, setModal }) {
       )}
       </div>
     </div>
-  </div>
-  </div>
+    </div>
+    </div>
   )
 }
 
@@ -1970,4 +1970,4 @@ function TabRelatorios({ store }) {
           <div style={{ fontSize: 12, fontWeight: 700, color: '#8a7355', marginBottom: 12 }}>🌙 Custo por turno</div>
           {porTurno.map((t, i) => (
             <div key={i} style={{ marginBottom: 14 }}>
-              <div style={{ display: 
+              <div style={{ displ
