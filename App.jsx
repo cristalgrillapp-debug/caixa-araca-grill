@@ -1351,6 +1351,7 @@ function ModalPagar({ store, extra, today, onClose }) {
 function TabLancamentos({ store, today }) {
   const { extras, vales, despesas, updateExtra, updateVale, updateDespesa } = store
   const [copied, setCopied] = useState({})
+  const [fotoModal, setFotoModal] = useState(null)
 
   const todayExtras = useMemo(() => {
     const all = extras.filter(e => e.data_op === today)
@@ -1388,6 +1389,15 @@ function TabLancamentos({ store, today }) {
 
   return (
     <div>
+      {/* Modal foto em tela cheia */}
+      {fotoModal && (
+        <div onClick={() => setFotoModal(null)}
+          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.92)', zIndex: 2000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+          <img src={fotoModal} alt="Nota fiscal" style={{ maxWidth: '100%', maxHeight: '85vh', borderRadius: 8, objectFit: 'contain' }} />
+          <div style={{ position: 'absolute', bottom: 24, color: '#ffffff80', fontSize: 12 }}>Toque para fechar</div>
+        </div>
+      )}
+
       <div style={{ ...S.card, background: '#f5f0e8', marginBottom: 12 }}>
         <div style={{ fontSize: 13, color: '#8a7355' }}>Copie e cole no sistema interno. Valores lançados manualmente.</div>
       </div>
@@ -1472,8 +1482,8 @@ function TabLancamentos({ store, today }) {
                 </div>
               </div>
               {d.foto && (
-                <img src={d.foto} alt="Nota" onClick={() => window.open(d.foto, '_blank')}
-                  style={{ maxHeight: 60, marginTop: 8, border: '1px solid #e0d5c5', borderRadius: 6, cursor: 'pointer' }} />
+                <img src={d.foto} alt="Nota" onClick={() => setFotoModal(d.foto)}
+                  style={{ maxHeight: 60, marginTop: 8, border: '1px solid #e0d5c5', borderRadius: 6, cursor: 'zoom-in' }} />
               )}
               <div style={{ marginTop: 6 }}>{d.lancado ? <Badge color="#22c55e">✓ Lançado</Badge> : <Badge color="#f59e0b">Não lançado</Badge>}</div>
             </div>
@@ -3471,6 +3481,10 @@ function TabVales({ store, today, setModal }) {
   const [dataPesquisa, setDataPesquisa] = useState(today)
   const [dataRelatorio, setDataRelatorio] = useState(today)
   const [copied, setCopied] = useState({})
+  const [fotoModal, setFotoModal] = useState(null)
+  const [despDe, setDespDe] = useState(today.slice(0,7)+'-01')
+  const [despAte, setDespAte] = useState(today)
+  const [despCategoria, setDespCategoria] = useState('')
 
   const ontem = toDateStr(new Date(new Date(today + 'T12:00:00').getTime() - 86400000))
   const weekStart = toDateStr(new Date(new Date(today + 'T12:00:00').setDate(new Date(today + 'T12:00:00').getDate() - 6)))
@@ -3682,7 +3696,7 @@ function TabVales({ store, today, setModal }) {
       {/* ─── PESQUISA ─── */}
       {subTela === 'pesquisa' && <>
         <div style={{ display: 'flex', gap: 4, background: '#f0e8d8', padding: 4, borderRadius: 10, marginBottom: 14 }}>
-          {[['pessoa','👤 Por Pessoa'],['data','📅 Por Data']].map(([id, label]) => (
+          {[['pessoa','👤 Por Pessoa'],['data','📅 Por Data'],['despesas','🧾 Despesas']].map(([id, label]) => (
             <button key={id} onClick={() => { setModoPesquisa(id); setPessoaSel(null); setBuscaPessoa('') }}
               style={{ flex: 1, padding: '8px', border: 'none', borderRadius: 8, background: modoPesquisa === id ? '#fff' : 'transparent', cursor: 'pointer', fontSize: 12, fontWeight: modoPesquisa === id ? 700 : 400, color: modoPesquisa === id ? C.gold : '#999' }}>
               {label}
@@ -3792,6 +3806,108 @@ function TabVales({ store, today, setModal }) {
             {valesDaData.map(v => <CardVale key={v.id} v={v} />)}
           </div>
         )}
+
+        {/* DESPESAS */}
+        {modoPesquisa === 'despesas' && (() => {
+          const cats = [...new Set((despesas||[]).map(d => d.categoria_nome).filter(Boolean))]
+          const despFiltradas = (despesas||[])
+            .filter(d => d.data_op >= despDe && d.data_op <= despAte)
+            .filter(d => !despCategoria || d.categoria_nome === despCategoria)
+            .sort((a,b) => b.data_op.localeCompare(a.data_op))
+          const totalDesp = despFiltradas.reduce((a,d) => a+d.valor, 0)
+
+          return (
+            <div>
+              {fotoModal && (
+                <div onClick={() => setFotoModal(null)}
+                  style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.92)', zIndex: 2000, display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', padding: 16 }}>
+                  <img src={fotoModal} alt="Nota fiscal" style={{ maxWidth: '100%', maxHeight: '82vh', borderRadius: 8, objectFit: 'contain' }} />
+                  <div style={{ color: '#ffffff80', fontSize: 12, marginTop: 12 }}>Toque para fechar</div>
+                </div>
+              )}
+
+              <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
+                <div style={{ flex: 1 }}>
+                  <label style={S.label}>De</label>
+                  <input type="date" value={despDe} onChange={e => setDespDe(e.target.value)} style={S.input} />
+                </div>
+                <div style={{ flex: 1 }}>
+                  <label style={S.label}>Até</label>
+                  <input type="date" value={despAte} max={today} onChange={e => setDespAte(e.target.value)} style={S.input} />
+                </div>
+              </div>
+
+              {cats.length > 0 && (
+                <div style={{ marginBottom: 10 }}>
+                  <label style={S.label}>Filtrar categoria</label>
+                  <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                    <button onClick={() => setDespCategoria('')}
+                      style={{ padding: '5px 10px', border: `2px solid ${!despCategoria ? C.accent : C.border}`, borderRadius: 16, background: !despCategoria ? C.accent : C.bgCard2, color: !despCategoria ? '#fff' : C.textMuted, fontSize: 11, fontWeight: !despCategoria ? 700 : 400, cursor: 'pointer' }}>
+                      Todas
+                    </button>
+                    {cats.map(cat => (
+                      <button key={cat} onClick={() => setDespCategoria(cat === despCategoria ? '' : cat)}
+                        style={{ padding: '5px 10px', border: `2px solid ${despCategoria===cat ? C.accent : C.border}`, borderRadius: 16, background: despCategoria===cat ? C.accent : C.bgCard2, color: despCategoria===cat ? '#fff' : C.textMuted, fontSize: 11, fontWeight: despCategoria===cat ? 700 : 400, cursor: 'pointer' }}>
+                        {cat}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              <div style={{ ...S.card, background: 'linear-gradient(135deg,#0d0020,#1a0035)', color: '#fff', marginBottom: 12 }}>
+                <div style={{ fontSize: 11, color: '#a78bfa', textTransform: 'uppercase' }}>Total Despesas</div>
+                <div style={{ fontSize: 24, fontWeight: 700, color: '#a78bfa' }}>{fmt(totalDesp)}</div>
+                <div style={{ fontSize: 12, color: '#ffffff60' }}>{despFiltradas.length} lançamento{despFiltradas.length!==1?'s':''}</div>
+              </div>
+
+              {despFiltradas.length === 0 && (
+                <div style={{ ...S.card, textAlign: 'center', padding: 24, color: '#999' }}>
+                  <div style={{ fontSize: 32 }}>🧾</div><div>Nenhuma despesa no período</div>
+                </div>
+              )}
+
+              {despFiltradas.map(d => {
+                const setor = setores.find(s => s.id === d.setor_id)
+                return (
+                  <div key={d.id} style={{ ...S.card, borderColor: C.accent + '44' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                      <div style={{ flex: 1 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 2 }}>
+                          <span style={{ fontSize: 16 }}>{d.categoria_emoji}</span>
+                          <span style={{ fontSize: 11, color: C.accent, fontWeight: 700 }}>{d.categoria_nome}</span>
+                          <span style={{ fontSize: 11, color: C.textMuted }}>· {dayLabel(d.data_op)}</span>
+                        </div>
+                        <div style={{ fontSize: 14, fontWeight: 700 }}>{d.descricao}</div>
+                        {setor && <div style={{ fontSize: 12, color: C.textMuted }}>{setor.nome}</div>}
+                        {d.obs && <div style={{ fontSize: 11, color: d.foto ? '#aaa' : C.gold, marginTop: 2, fontStyle: 'italic' }}>{d.foto ? d.obs : '⚠ '+d.obs}</div>}
+                        <div style={{ marginTop: 6 }}>
+                          <Badge color={d.forma_pagamento==='pix'?C.secondary:C.success}>
+                            {d.forma_pagamento==='pix'?'📱 Pix':'💵 Dinheiro'}
+                          </Badge>
+                        </div>
+                      </div>
+                      <div style={{ textAlign: 'right', flexShrink: 0 }}>
+                        <div style={{ fontSize: 18, fontWeight: 700, color: C.accent }}>{fmt(d.valor)}</div>
+                        {d.foto
+                          ? <button onClick={() => setFotoModal(d.foto)}
+                              style={{ marginTop: 4, background: C.accent+'22', border: `1px solid ${C.accent}44`, borderRadius: 8, padding: '4px 10px', fontSize: 11, color: C.accent, cursor: 'pointer', fontWeight: 700 }}>
+                              🖼 Ver nota
+                            </button>
+                          : <div style={{ fontSize: 10, color: C.gold, marginTop: 4 }}>Sem nota</div>
+                        }
+                      </div>
+                    </div>
+                    {d.foto && (
+                      <img src={d.foto} alt="Nota" onClick={() => setFotoModal(d.foto)}
+                        style={{ maxHeight: 60, marginTop: 8, border: `1px solid ${C.border}`, borderRadius: 6, cursor: 'zoom-in', display: 'block' }} />
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+          )
+        })()}
       </>}
 
       {/* ─── RELATÓRIO ─── */}
@@ -4492,10 +4608,10 @@ function ModalNovaDespesa({ store, today, onClose }) {
             </div>
           ) : (
             <div>
-              <input ref={fotoRef} type="file" accept="image/*" capture="environment" style={{ display: 'none' }} onChange={handleFoto} />
+              <input ref={fotoRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={handleFoto} />
               <button onClick={() => fotoRef.current?.click()}
                 style={{ ...S.btn(C.secondary, true), width: '100%' }}>
-                📷 Tirar foto da nota fiscal
+                📎 Foto, galeria ou comprovante
               </button>
               <div style={{ fontSize: 11, color: C.gold, marginTop: 6 }}>⚠ Sem foto: observação será obrigatória</div>
             </div>
