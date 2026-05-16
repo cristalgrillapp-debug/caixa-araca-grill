@@ -3796,50 +3796,206 @@ function TabVales({ store, today, setModal }) {
 
       {/* ─── RELATÓRIO ─── */}
       {subTela === 'relatorio' && (
-        <div>
-          <div style={{ ...S.card }}>
-            <div style={{ fontSize: 14, fontWeight: 800, color: C.text, marginBottom: 4 }}>📄 Relatório de Saídas do Dia</div>
-            <div style={{ fontSize: 12, color: C.textMuted, marginBottom: 14 }}>
-              Inclui todos os pagamentos de extras + vales da data. Exportável em PDF.
-            </div>
-            <label style={S.label}>Data do relatório</label>
-            <input type="date" value={dataRelatorio} onChange={e => setDataRelatorio(e.target.value)} style={{ ...S.input, marginBottom: 14 }} />
-            {(() => {
-              const extrasDia = extras.filter(e => e.pago && e.data_op === dataRelatorio)
-              const valesDia = vales.filter(v => v.data_op === dataRelatorio)
-              const totalEx = extrasDia.reduce((a, e) => a + e.valor_final, 0)
-              const totalVa = valesDia.reduce((a, v) => a + v.valor, 0)
-              const totalG = totalEx + totalVa
-              return (
-                <div>
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8, marginBottom: 14 }}>
-                    <div style={{ background: C.bgCard2, borderRadius: 10, padding: 10, textAlign: 'center', border: `1px solid ${C.border}` }}>
-                      <div style={{ fontSize: 10, color: C.textMuted, textTransform: 'uppercase' }}>Extras</div>
-                      <div style={{ fontSize: 16, fontWeight: 700, color: C.primary }}>{fmt(totalEx)}</div>
-                      <div style={{ fontSize: 10, color: C.textMuted }}>{extrasDia.length} pag.</div>
-                    </div>
-                    <div style={{ background: C.bgCard2, borderRadius: 10, padding: 10, textAlign: 'center', border: `1px solid ${C.border}` }}>
-                      <div style={{ fontSize: 10, color: C.textMuted, textTransform: 'uppercase' }}>Vales</div>
-                      <div style={{ fontSize: 16, fontWeight: 700, color: C.gold }}>{fmt(totalVa)}</div>
-                      <div style={{ fontSize: 10, color: C.textMuted }}>{valesDia.length} vale{valesDia.length !== 1 ? 's' : ''}</div>
-                    </div>
-                    <div style={{ background: '#1c1917', borderRadius: 10, padding: 10, textAlign: 'center' }}>
-                      <div style={{ fontSize: 10, color: '#ffffff80', textTransform: 'uppercase' }}>Total</div>
-                      <div style={{ fontSize: 16, fontWeight: 700, color: '#c9a96e' }}>{fmt(totalG)}</div>
-                      <div style={{ fontSize: 10, color: '#ffffff50' }}>saída total</div>
-                    </div>
-                  </div>
-                  <button
-                    onClick={() => exportarRelatorioDiaPDF(extrasDia, valesDia, pessoas, setores, config, dataRelatorio)}
-                    style={{ ...S.btn(C.danger), width: '100%' }}>
-                    📄 Exportar PDF do Dia
-                  </button>
-                </div>
-              )
-            })()}
+        <RelatorioVales vales={vales} setores={setores} config={config} today={today} />
+      )}
+    </div>
+  )
+}
+
+// ─── RELATÓRIO DE VALES ───────────────────────────────────────────────────────
+
+function exportarRelatorioValesPDF(agrupado, from, to, modo, config) {
+  const DIAS2 = ['Dom','Seg','Ter','Qua','Qui','Sex','Sáb']
+  const dl = (d) => { if (!d) return ''; const [y,m,dd] = d.split('-'); const dt = new Date(Number(y),Number(m)-1,Number(dd)); return DIAS2[dt.getDay()]+' '+String(dt.getDate()).padStart(2,'0')+'/'+String(dt.getMonth()+1).padStart(2,'0') }
+  const fmt2 = (c) => new Intl.NumberFormat('pt-BR',{style:'currency',currency:'BRL'}).format((c||0)/100)
+  const nomeEstab = config?.nome_estabelecimento || 'ARACÁ GRILL'
+  const periodo = from === to ? dl(from) : `${dl(from)} a ${dl(to)}`
+  const totalGeral = agrupado.reduce((a,p) => a+p.total, 0)
+  const totalQtd   = agrupado.reduce((a,p) => a+p.vales.length, 0)
+
+  const linhasPessoas = agrupado.map(p => {
+    const resumo = `<tr>
+      <td><strong>${p.nome}</strong><br><small>${p.funcao||''}</small></td>
+      <td style="text-align:center">${p.vales.length}</td>
+      <td style="text-align:right;font-weight:700;color:#9a7520">${fmt2(p.total)}</td>
+    </tr>`
+
+    if (modo === 'resumido') return resumo
+
+    const detalhes = p.vales.sort((a,b)=>b.data_op.localeCompare(a.data_op)).map(v => `
+      <tr style="background:#fffbeb">
+        <td style="padding-left:24px;font-size:10px;color:#6b6360">${dl(v.data_op)}</td>
+        <td style="font-size:10px;color:#6b6360">${v.forma_pagamento==='pix'?'📱 Pix':'💵 Dinheiro'}${v.obs?' · '+v.obs:''}</td>
+        <td style="text-align:right;font-size:10px;color:#9a7520">${fmt2(v.valor)}</td>
+      </tr>`).join('')
+
+    return resumo + detalhes
+  }).join('')
+
+  const html = `<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8">
+  <title>${nomeEstab} — Vales ${periodo}</title>
+  <style>
+    *{margin:0;padding:0;box-sizing:border-box}
+    body{font-family:'Helvetica Neue',Arial,sans-serif;font-size:11px;color:#18181b;padding:16px}
+    .header{display:flex;justify-content:space-between;margin-bottom:14px;padding-bottom:10px;border-bottom:3px solid #9a7520}
+    .logo{font-size:20px;font-weight:900;color:#9a7520}.sub{font-size:12px;color:#6b6360;margin-top:3px}
+    .meta{text-align:right;font-size:10px;color:#6b6360;line-height:1.7}
+    .cards{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:14px}
+    .card{background:#f7f6f3;border-radius:8px;padding:10px;text-align:center;border:1px solid #e4ddd4}
+    .cl{font-size:9px;font-weight:700;color:#6b6360;text-transform:uppercase;margin-bottom:2px}
+    .cv{font-size:18px;font-weight:900}
+    .card.tot{background:#1a1200}.card.tot .cl{color:#c9a96e80}.card.tot .cv{color:#c9a96e}
+    .card.qtd .cv{color:#9a7520}.card.pes .cv{color:#5c4d8a}
+    table{width:100%;border-collapse:collapse;margin-bottom:6px}
+    thead tr{background:#1c1917}
+    th{color:#fff;font-size:9px;font-weight:700;text-transform:uppercase;padding:6px 10px;text-align:left}
+    td{padding:6px 10px;border-bottom:1px solid #f0ede8;vertical-align:top}
+    tr:nth-child(even) td{background:#fafaf9}
+    small{font-size:9px;color:#6b6360}
+    .rodape{background:#1c1917;border-radius:8px;padding:10px 14px;display:flex;justify-content:space-between;align-items:center;margin-top:12px}
+    .footer{margin-top:10px;padding-top:8px;border-top:1px solid #e4ddd4;font-size:9px;color:#a8a09a;text-align:center}
+    @media print{body{padding:6px}@page{margin:8mm;size:A4}}
+  </style></head><body>
+  <div class="header">
+    <div>
+      <div class="logo">💸 ${nomeEstab}</div>
+      <div class="sub">Relatório de Vales · ${periodo} · ${modo === 'detalhado' ? 'Detalhado' : 'Resumido'}</div>
+    </div>
+    <div class="meta">Gerado em: ${new Date().toLocaleString('pt-BR')}<br>${agrupado.length} funcionário${agrupado.length!==1?'s':''} · ${totalQtd} vale${totalQtd!==1?'s':''}</div>
+  </div>
+  <div class="cards">
+    <div class="card tot"><div class="cl">Total Vales</div><div class="cv">${fmt2(totalGeral)}</div></div>
+    <div class="card qtd"><div class="cl">Quantidade</div><div class="cv">${totalQtd}</div></div>
+    <div class="card pes"><div class="cl">Funcionários</div><div class="cv">${agrupado.length}</div></div>
+  </div>
+  <table>
+    <thead><tr>
+      <th>Funcionário</th>
+      <th style="text-align:center">Qtd</th>
+      <th style="text-align:right">Total</th>
+    </tr></thead>
+    <tbody>${linhasPessoas}</tbody>
+  </table>
+  <div class="rodape">
+    <div style="font-size:11px;font-weight:700;color:#ffffff80">TOTAL — ${periodo}</div>
+    <div style="font-size:20px;font-weight:900;color:#c9a96e">${fmt2(totalGeral)}</div>
+  </div>
+  <div class="footer">${nomeEstab} · Sistema Operacional · ${new Date().getFullYear()}</div>
+  <script>window.onload=()=>window.print()<\/script>
+  </body></html>`
+
+  const w = window.open('','_blank','width=900,height=700')
+  w.document.write(html); w.document.close()
+}
+
+function RelatorioVales({ vales, setores, config, today }) {
+  const [de, setDe] = useState(today.slice(0,7) + '-01')
+  const [ate, setAte] = useState(today)
+  const [modo, setModo] = useState('resumido')
+
+  const agrupado = useMemo(() => {
+    const filtrados = (vales||[]).filter(v => v.data_op >= de && v.data_op <= ate)
+    const map = {}
+    filtrados.forEach(v => {
+      const key = v.pessoa_id || v.nome
+      if (!map[key]) map[key] = { nome: v.nome, funcao: v.funcao||'', vales: [], total: 0 }
+      map[key].vales.push(v)
+      map[key].total += v.valor
+    })
+    return Object.values(map).sort((a,b) => b.total - a.total)
+  }, [vales, de, ate])
+
+  const totalGeral = agrupado.reduce((a,p) => a+p.total, 0)
+  const totalQtd   = agrupado.reduce((a,p) => a+p.vales.length, 0)
+
+  return (
+    <div>
+      {/* Período */}
+      <div style={S.card}>
+        <div style={{ fontSize: 13, fontWeight: 800, color: C.text, marginBottom: 12 }}>📄 Relatório de Vales por Período</div>
+        <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
+          <div style={{ flex: 1 }}>
+            <label style={S.label}>De</label>
+            <input type="date" value={de} onChange={e => setDe(e.target.value)} style={S.input} />
+          </div>
+          <div style={{ flex: 1 }}>
+            <label style={S.label}>Até</label>
+            <input type="date" value={ate} max={today} onChange={e => setAte(e.target.value)} style={S.input} />
           </div>
         </div>
+
+        {/* Modo resumido/detalhado */}
+        <div style={{ display: 'flex', gap: 4, background: '#f0e8d8', padding: 4, borderRadius: 10, marginBottom: 12 }}>
+          {[['resumido','📋 Resumido'],['detalhado','🔍 Detalhado']].map(([id,label]) => (
+            <button key={id} onClick={() => setModo(id)}
+              style={{ flex: 1, padding: '8px', border: 'none', borderRadius: 8, background: modo===id?'#fff':'transparent', cursor: 'pointer', fontSize: 12, fontWeight: modo===id?700:400, color: modo===id?C.gold:'#999' }}>
+              {label}
+            </button>
+          ))}
+        </div>
+
+        {/* Totalizadores */}
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8, marginBottom: 14 }}>
+          <div style={{ background: '#1a1200', borderRadius: 10, padding: 10, textAlign: 'center' }}>
+            <div style={{ fontSize: 10, color: '#c9a96e80', textTransform: 'uppercase' }}>Total</div>
+            <div style={{ fontSize: 18, fontWeight: 700, color: '#c9a96e' }}>{fmt(totalGeral)}</div>
+          </div>
+          <div style={{ background: C.bgCard2, borderRadius: 10, padding: 10, textAlign: 'center', border: `1px solid ${C.border}` }}>
+            <div style={{ fontSize: 10, color: C.textMuted, textTransform: 'uppercase' }}>Vales</div>
+            <div style={{ fontSize: 18, fontWeight: 700, color: C.gold }}>{totalQtd}</div>
+          </div>
+          <div style={{ background: C.bgCard2, borderRadius: 10, padding: 10, textAlign: 'center', border: `1px solid ${C.border}` }}>
+            <div style={{ fontSize: 10, color: C.textMuted, textTransform: 'uppercase' }}>Pessoas</div>
+            <div style={{ fontSize: 18, fontWeight: 700, color: C.accent }}>{agrupado.length}</div>
+          </div>
+        </div>
+
+        <button onClick={() => exportarRelatorioValesPDF(agrupado, de, ate, modo, config)}
+          disabled={agrupado.length === 0}
+          style={{ ...S.btn(agrupado.length === 0 ? C.textDim : C.gold), width: '100%' }}>
+          📄 Exportar PDF {modo === 'detalhado' ? 'Detalhado' : 'Resumido'}
+        </button>
+      </div>
+
+      {/* Preview na tela */}
+      {agrupado.length === 0 && (
+        <div style={{ ...S.card, textAlign: 'center', padding: 24, color: '#999' }}>
+          <div style={{ fontSize: 32 }}>💸</div>
+          <div>Nenhum vale no período</div>
+        </div>
       )}
+
+      {agrupado.map((p, i) => (
+        <div key={i} style={{ ...S.card, borderColor: C.gold + '44' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+            <div>
+              <div style={{ fontWeight: 800, fontSize: 15 }}>{p.nome}</div>
+              <div style={{ fontSize: 12, color: C.textMuted }}>{p.funcao} · {p.vales.length} vale{p.vales.length!==1?'s':''}</div>
+            </div>
+            <div style={{ fontSize: 18, fontWeight: 700, color: C.gold }}>{fmt(p.total)}</div>
+          </div>
+
+          {/* Detalhes */}
+          {modo === 'detalhado' && (
+            <div style={{ marginTop: 10, borderTop: `1px solid ${C.border}`, paddingTop: 8 }}>
+              {p.vales.sort((a,b) => b.data_op.localeCompare(a.data_op)).map((v,j) => (
+                <div key={j} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '5px 0', borderBottom: j < p.vales.length-1 ? `1px solid ${C.border}` : 'none' }}>
+                  <div>
+                    <div style={{ fontSize: 12, fontWeight: 600, color: C.text }}>{dayLabel(v.data_op)}</div>
+                    <div style={{ display: 'flex', gap: 6, marginTop: 2 }}>
+                      <Badge color={v.forma_pagamento==='pix'?C.secondary:C.success}>
+                        {v.forma_pagamento==='pix'?'📱 Pix':'💵 Din'}
+                      </Badge>
+                      {v.obs && <span style={{ fontSize: 10, color: C.textMuted, fontStyle: 'italic' }}>{v.obs}</span>}
+                    </div>
+                  </div>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: C.gold }}>{fmt(v.valor)}</div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      ))}
     </div>
   )
 }
