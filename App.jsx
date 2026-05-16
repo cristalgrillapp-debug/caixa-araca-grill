@@ -1970,4 +1970,1099 @@ function TabRelatorios({ store }) {
           <div style={{ fontSize: 12, fontWeight: 700, color: '#8a7355', marginBottom: 12 }}>🌙 Custo por turno</div>
           {porTurno.map((t, i) => (
             <div key={i} style={{ marginBottom: 14 }}>
-              <div style={{ displ
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
+                <span style={{ fontSize: 13, fontWeight: 600 }}>{t.label}</span>
+                <span style={{ fontSize: 13, fontWeight: 700, color: '#c9a96e' }}>{fmt(t.total)}</span>
+              </div>
+              <div style={{ height: 10, background: '#f0e8d8', borderRadius: 5, overflow: 'hidden' }}>
+                <div style={{ height: '100%', width: totalCusto > 0 ? (t.total/totalCusto*100)+'%' : '0%', background: t.label.includes('Noite') ? '#1a1a2e' : t.label.includes('Dia+Noite') ? '#c9a96e' : '#8a7355', borderRadius: 5 }} />
+              </div>
+              <div style={{ fontSize: 11, color: '#8a7355', marginTop: 2 }}>{t.qtd} extras · {totalCusto > 0 ? Math.round(t.total/totalCusto*100) : 0}% do custo</div>
+            </div>
+          ))}
+        </div>
+
+        <div style={S.card}>
+          <div style={{ fontSize: 12, fontWeight: 700, color: '#8a7355', marginBottom: 10 }}>📊 Distribuição N vs D no período</div>
+          {(() => {
+            const noite = pagos.filter(e => e.turnos === 'TN' || e.turnos === 'TD+TN')
+            const dia = pagos.filter(e => e.turnos === 'TD' || e.turnos === 'TD+TN')
+            const custoN = noite.reduce((a,e) => a+e.valor_final, 0)
+            const custoD = dia.reduce((a,e) => a+e.valor_final, 0)
+            return (
+              <div style={{ display: 'flex', gap: 8 }}>
+                <div style={{ flex: 1, background: '#1a1a2e', borderRadius: 10, padding: 12, textAlign: 'center', color: '#fff' }}>
+                  <div style={{ fontSize: 11, color: '#c9a96e' }}>🌙 Noite</div>
+                  <div style={{ fontSize: 20, fontWeight: 700, color: '#c9a96e' }}>{noite.length}</div>
+                  <div style={{ fontSize: 11, color: '#ffffff60' }}>{fmt(custoN)}</div>
+                </div>
+                <div style={{ flex: 1, background: '#f5f0e8', borderRadius: 10, padding: 12, textAlign: 'center' }}>
+                  <div style={{ fontSize: 11, color: '#8a7355' }}>☀️ Dia</div>
+                  <div style={{ fontSize: 20, fontWeight: 700 }}>{dia.length}</div>
+                  <div style={{ fontSize: 11, color: '#8a7355' }}>{fmt(custoD)}</div>
+                </div>
+              </div>
+            )
+          })()}
+        </div>
+      </>}
+
+      {/* ─── SETORES ─── */}
+      {subTela === 'setores' && <>
+        {porSetor.map(s => (
+          <div key={s.nome} style={S.card}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
+              <div>
+                <div style={{ fontWeight: 700, fontSize: 14 }}>{s.nome}</div>
+                <div style={{ fontSize: 11, color: '#8a7355' }}>{s.qtd} extras · {fmt(s.total)}</div>
+              </div>
+              <div style={{ fontSize: 18, fontWeight: 700, color: '#c9a96e' }}>{fmt(s.total)}</div>
+            </div>
+            <div style={{ height: 8, background: '#f0e8d8', borderRadius: 4, marginBottom: 8 }}>
+              <div style={{ height: '100%', width: (s.total/maxSetor*100)+'%', background: '#c9a96e', borderRadius: 4 }} />
+            </div>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <div style={{ flex: 1, background: '#eff6ff', borderRadius: 6, padding: '4px 8px', textAlign: 'center' }}>
+                <div style={{ fontSize: 10, color: '#3b82f6' }}>🏠 Internos</div>
+                <div style={{ fontSize: 14, fontWeight: 700, color: '#1e40af' }}>{s.internos}</div>
+              </div>
+              <div style={{ flex: 1, background: '#f5f0e8', borderRadius: 6, padding: '4px 8px', textAlign: 'center' }}>
+                <div style={{ fontSize: 10, color: '#8a7355' }}>🚶 Externos</div>
+                <div style={{ fontSize: 14, fontWeight: 700 }}>{s.externos}</div>
+              </div>
+              <div style={{ flex: 1, background: s.externos > s.internos * 2 ? '#fff5f5' : '#f0fdf4', borderRadius: 6, padding: '4px 8px', textAlign: 'center' }}>
+                <div style={{ fontSize: 10, color: s.externos > s.internos * 2 ? '#ef4444' : '#22c55e' }}>Dependência</div>
+                <div style={{ fontSize: 12, fontWeight: 700, color: s.externos > s.internos * 2 ? '#ef4444' : '#22c55e' }}>
+                  {s.qtd > 0 ? Math.round(s.externos/s.qtd*100) : 0}%
+                </div>
+              </div>
+            </div>
+          </div>
+        ))}
+        {porSetor.length === 0 && <div style={{ ...S.card, textAlign: 'center', padding: 32, color: '#999' }}>Sem dados no período</div>}
+      </>}
+
+      {/* Modal histórico funcionário */}
+      {pessoaSelecionada && (
+        <ModalHistoricoFuncionario
+          pessoa={pessoaSelecionada}
+          from={from} to={to}
+          setores={setores}
+          config={config}
+          onClose={() => setPessoaSelecionada(null)}
+        />
+      )}
+    </div>
+  </div>
+  </div>
+  </div>
+  </div>
+  )
+}
+
+
+function ModalHistoricoFuncionario({ pessoa, from, to, setores, config, onClose }) {
+  const totalGeral = pessoa.pagamentos.reduce((a, e) => a + e.valor_final, 0)
+  const totalDin = pessoa.pagamentos.filter(e => e.forma_pagamento === 'dinheiro').reduce((a, e) => a + e.valor_final, 0)
+  const totalPix = pessoa.pagamentos.filter(e => e.forma_pagamento === 'pix').reduce((a, e) => a + e.valor_final, 0)
+
+  const imprimir = () => {
+    const nomeEstab = config?.nome_estabelecimento || 'ARACÁ GRILL'
+    const periodoLabel = from === to ? dayLabel(from) : `${dayLabel(from)} até ${dayLabel(to)}`
+    const linhas = pessoa.pagamentos.map(e => {
+      const setor = setores.find(s => s.id === e.setor_id)
+      const desconto = (e.trocos_descontados || []).reduce((a, t) => a + t.valor, 0)
+      return `
+        <div class="linha">
+          <div class="row">
+            <span class="negrito">${dayLabel(e.data_op)}</span>
+            <span class="negrito valor">${fmt(e.valor_final)}</span>
+          </div>
+          <div class="row sub">
+            <span>${e.funcao || ''}${setor ? ' · ' + setor.nome : ''}${e.turnos ? ' · ' + e.turnos : ''}</span>
+            <span>${e.forma_pagamento === 'pix' ? '📱 Pix' : '💵 Dinheiro'}</span>
+          </div>
+          ${desconto > 0 ? `<div class="row sub"><span>Troco descontado</span><span style="color:#22c55e">−${fmt(desconto)}</span></div>` : ''}
+          ${e.troco_gerado > 0 ? `<div class="row sub"><span>Troco gerado</span><span style="color:#f59e0b">+${fmt(e.troco_gerado)}</span></div>` : ''}
+          ${e.assinatura ? `<img src="${e.assinatura}" style="max-width:60mm;max-height:15mm;object-fit:contain;margin-top:4px;" />` : ''}
+        </div>`
+    }).join('')
+
+    const html = `<!DOCTYPE html><html><head><meta charset="UTF-8">
+    <style>
+      * { margin:0; padding:0; box-sizing:border-box; }
+      body { font-family:'Courier New',monospace; font-size:11px; width:72mm; margin:0 auto; color:#000; }
+      .centro { text-align:center; }
+      .negrito { font-weight:bold; }
+      .grande { font-size:14px; }
+      .valor { font-size:14px; }
+      .sep { border-top:1px dashed #000; margin:6px 0; }
+      .row { display:flex; justify-content:space-between; }
+      .sub { font-size:10px; color:#555; margin-top:1px; }
+      .linha { padding:6px 0; border-bottom:1px solid #eee; }
+      @media print { @page { size:80mm auto; margin:2mm; } }
+    </style></head><body>
+    <div class="centro negrito grande">${nomeEstab}</div>
+    <div class="centro">HISTÓRICO DE PAGAMENTOS</div>
+    <div class="sep"></div>
+    <div class="negrito grande">${pessoa.nome}</div>
+    <div style="font-size:10px;color:#555">${pessoa.funcao || ''}</div>
+    <div style="font-size:10px;color:#555">Período: ${periodoLabel}</div>
+    <div class="sep"></div>
+    ${linhas}
+    <div class="sep"></div>
+    <div class="row negrito"><span>💵 Dinheiro</span><span>${fmt(totalDin)}</span></div>
+    <div class="row negrito"><span>📱 Pix</span><span>${fmt(totalPix)}</span></div>
+    <div class="sep"></div>
+    <div class="row negrito grande"><span>TOTAL</span><span>${fmt(totalGeral)}</span></div>
+    <div style="margin-top:6px;font-size:10px;color:#999;text-align:center">${pessoa.qtd} pagamentos</div>
+    <script>window.onload=()=>window.print()<\/script>
+    </body></html>`
+
+    const w = window.open('', '_blank', 'width=400,height=700')
+    w.document.write(html)
+    w.document.close()
+  }
+
+  return (
+    <Modal title={pessoa.nome} onClose={onClose}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
+
+        {/* Resumo */}
+        <div style={{ ...S.card, background: 'linear-gradient(135deg,#1a1a2e,#2d2340)', color: '#fff', marginBottom: 12 }}>
+          <div style={{ fontSize: 11, color: '#c9a96e60' }}>{pessoa.qtd} pagamentos no período</div>
+          <div style={{ fontSize: 28, fontWeight: 700, color: '#c9a96e' }}>{fmt(totalGeral)}</div>
+          <div style={{ display: 'flex', gap: 16, marginTop: 6 }}>
+            <div style={{ fontSize: 12, color: '#c9a96e80' }}>💵 {fmt(totalDin)}</div>
+            <div style={{ fontSize: 12, color: '#60a5fa80' }}>📱 {fmt(totalPix)}</div>
+          </div>
+          {pessoa.trocos > 0 && <div style={{ fontSize: 11, color: '#ef4444', marginTop: 4 }}>🔴 Troco pendente: {fmt(pessoa.trocos)}</div>}
+        </div>
+
+        {/* Histórico */}
+        {pessoa.pagamentos.map((e, i) => {
+          const setor = setores.find(s => s.id === e.setor_id)
+          const desconto = (e.trocos_descontados || []).reduce((a, t) => a + t.valor, 0)
+          return (
+            <div key={i} style={{ padding: '10px 0', borderBottom: '1px solid #f0e8d8' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                <div>
+                  <div style={{ fontWeight: 600, fontSize: 13 }}>{dayLabel(e.data_op)}</div>
+                  <div style={{ fontSize: 12, color: '#8a7355' }}>{e.funcao}{e.turnos ? ' · ' + e.turnos : ''}{setor ? ' · ' + setor.nome : ''}</div>
+                  {e.obs && <div style={{ fontSize: 11, color: C.textMuted, fontStyle: 'italic', marginTop: 2 }}>📝 {e.obs}</div>}
+                  {e.editado && <div style={{ fontSize: 10, color: C.gold, marginTop: 1 }}>✏️ Editado por {e.editado_por} — {e.motivo_edicao}</div>}
+                  {desconto > 0 && <div style={{ fontSize: 11, color: C.success }}>−{fmt(desconto)} troco descontado</div>}
+                  {e.troco_gerado > 0 && <div style={{ fontSize: 11, color: C.gold }}>+{fmt(e.troco_gerado)} troco gerado</div>}
+                </div>
+                <div style={{ textAlign: 'right' }}>
+                  <div style={{ fontSize: 15, fontWeight: 700, color: '#c9a96e' }}>{fmt(e.valor_final)}</div>
+                  {e.forma_pagamento === 'pix' ? <Badge color="#3b82f6">📱 Pix</Badge> : <Badge color="#22c55e">💵 Din</Badge>}
+                </div>
+              </div>
+              {e.assinatura && <img src={e.assinatura} alt="Ass." style={{ maxHeight: 40, marginTop: 4, border: '1px solid #e0d5c5', borderRadius: 4 }} />}
+            </div>
+          )
+        })}
+
+        <button onClick={imprimir} style={{ ...S.btn(C.accent), marginTop: 16 }}>
+          🖨️ Imprimir histórico
+        </button>
+      </div>
+    </Modal>
+  )
+}
+
+// ─── MODAL ADICIONAR PESSOA ───────────────────────────────────────────────────
+
+function CampoPix({ tipoPix, chavePix, setChavePix }) {
+  const erro = chavePix ? validarChavePix(tipoPix, chavePix) : { ok: true, msg: '' }
+
+  const handleChange = (val) => {
+    if (tipoPix === 'CPF') setChavePix(formatarCPF(val))
+    else if (tipoPix === 'Telefone') setChavePix(formatarTelefone(val))
+    else setChavePix(val)
+  }
+
+  return (
+    <div>
+      <input
+        value={chavePix}
+        onChange={e => handleChange(e.target.value)}
+        style={{ ...S.input, borderColor: chavePix && !erro.ok ? '#ef4444' : '#e0d5c5' }}
+        placeholder={
+          tipoPix === 'CPF' ? '000.000.000-00' :
+          tipoPix === 'Telefone' ? '(11) 99999-9999' :
+          tipoPix === 'E-mail' ? 'exemplo@email.com' :
+          'Chave aleatória'
+        }
+        inputMode={tipoPix === 'CPF' || tipoPix === 'Telefone' ? 'numeric' : 'text'}
+      />
+      {chavePix && !erro.ok && (
+        <div style={{ fontSize: 11, color: '#ef4444', marginTop: 3 }}>⚠ {erro.msg}</div>
+      )}
+      {chavePix && erro.ok && (
+        <div style={{ fontSize: 11, color: '#22c55e', marginTop: 3 }}>✓ Chave válida</div>
+      )}
+    </div>
+  )
+}
+
+function ModalAddPessoa({ store, onClose }) {
+  const { addPessoa, setores } = store
+  const [nome, setNome] = useState('')
+  const [funcao, setFuncao] = useState('')
+  const [tel, setTel] = useState('')
+  const [setorId, setSetorId] = useState('')
+  const [valSQ, setValSQ] = useState('')
+  const [valSD, setValSD] = useState('')
+  const [tipoPix, setTipoPix] = useState('CPF')
+  const [chavePix, setChavePix] = useState('')
+  const [internoCasa, setInternoCasa] = useState(false)
+  const [obsFixa, setObsFixa] = useState('')
+
+  const save = async () => {
+    if (!nome.trim()) return alert('Nome obrigatório')
+    if (chavePix.trim()) {
+      const v = validarChavePix(tipoPix, chavePix)
+      if (!v.ok) return alert('Chave Pix inválida: ' + v.msg)
+    }
+    await addPessoa({ nome: nome.trim(), funcao, telefone: tel, setor_id: setorId, val_seg_qui: parseCents(valSQ), val_sex_dom: parseCents(valSD), tipo_pix: tipoPix, chave_pix: chavePix.trim(), interno_casa: internoCasa, obs_fixa: obsFixa.trim() })
+    onClose()
+  }
+
+  return (
+    <Modal title="Nova Pessoa" onClose={onClose}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+        <div><label style={S.label}>Nome *</label><input value={nome} onChange={e => setNome(e.target.value)} style={S.input} /></div>
+        <div><label style={S.label}>Telefone WhatsApp</label><input value={tel} onChange={e => setTel(e.target.value)} style={S.input} placeholder="18999999999" inputMode="numeric" /></div>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <div style={{ flex: 1 }}><label style={S.label}>Função</label><input value={funcao} onChange={e => setFuncao(e.target.value)} style={S.input} /></div>
+          <div style={{ flex: 1 }}><label style={S.label}>Setor</label>
+            <select value={setorId} onChange={e => setSetorId(e.target.value)} style={S.input}>
+              <option value="">—</option>
+              {setores.filter(s => s.ativo).map(s => <option key={s.id} value={s.id}>{s.nome}</option>)}
+            </select>
+          </div>
+        </div>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <div style={{ flex: 1 }}><label style={S.label}>Seg-Qui</label><input value={valSQ} onChange={e => { const r = e.target.value.replace(/\D/g, ''); setValSQ(r ? fmt(parseInt(r)) : '') }} style={S.input} placeholder="R$ 0,00" inputMode="numeric" /></div>
+          <div style={{ flex: 1 }}><label style={S.label}>Sex-Dom</label><input value={valSD} onChange={e => { const r = e.target.value.replace(/\D/g, ''); setValSD(r ? fmt(parseInt(r)) : '') }} style={S.input} placeholder="R$ 0,00" inputMode="numeric" /></div>
+        </div>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <div style={{ flex: 1 }}><label style={S.label}>Tipo Pix</label>
+            <select value={tipoPix} onChange={e => setTipoPix(e.target.value)} style={S.input}>
+              {['CPF', 'Telefone', 'E-mail', 'Aleatória'].map(t => <option key={t}>{t}</option>)}
+            </select>
+          </div>
+          <div style={{ flex: 2 }}>
+            <label style={S.label}>Chave Pix</label>
+            <CampoPix tipoPix={tipoPix} chavePix={chavePix} setChavePix={setChavePix} />
+          </div>
+        </div>
+        <div>
+          <label style={S.label}>Observação permanente</label>
+          <input value={obsFixa} onChange={e => setObsFixa(e.target.value)} style={S.input} placeholder="Ex: sempre atrasa, só Pix, não trabalha domingo..." />
+        </div>
+        <div onClick={() => setInternoCasa(!internoCasa)}
+          style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', background: internoCasa ? '#eff6ff' : '#f5f0e8', border: `2px solid ${internoCasa ? '#3b82f6' : '#e0d5c5'}`, borderRadius: 10, cursor: 'pointer' }}>
+          <div style={{ width: 20, height: 20, borderRadius: 4, border: `2px solid ${internoCasa ? '#3b82f6' : '#ccc'}`, background: internoCasa ? '#3b82f6' : '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            {internoCasa && <span style={{ color: '#fff', fontSize: 13, fontWeight: 700 }}>✓</span>}
+          </div>
+          <div>
+            <div style={{ fontWeight: 600, fontSize: 13, color: internoCasa ? '#1e40af' : '#666' }}>🏠 Funcionário da casa</div>
+            <div style={{ fontSize: 11, color: '#8a7355' }}>Marque se essa pessoa é funcionário fixo que também faz extra</div>
+          </div>
+        </div>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button onClick={onClose} style={{ ...S.btn(C.textDim, true) }}>Cancelar</button>
+          <button onClick={save} style={{ ...S.btn(C.primary), flex: 2 }}>Salvar</button>
+        </div>
+      </div>
+    </Modal>
+  )
+}
+
+// ─── MODAL EDITAR PESSOA ──────────────────────────────────────────────────────
+
+function ModalEditPessoa({ store, pessoa, onClose }) {
+  const { updatePessoa, setores } = store
+  const [nome, setNome] = useState(pessoa.nome)
+  const [funcao, setFuncao] = useState(pessoa.funcao || '')
+  const [tel, setTel] = useState(pessoa.telefone || '')
+  const [setorId, setSetorId] = useState(pessoa.setor_id || '')
+  const [valSQ, setValSQ] = useState(fmt(pessoa.val_seg_qui || 0))
+  const [valSD, setValSD] = useState(fmt(pessoa.val_sex_dom || 0))
+  const [tipoPix, setTipoPix] = useState(pessoa.tipo_pix || 'CPF')
+  const [chavePix, setChavePix] = useState(pessoa.chave_pix || '')
+  const [internoCasa, setInternoCasa] = useState(pessoa.interno_casa || false)
+  const [obsFixa, setObsFixa] = useState(pessoa.obs_fixa || '')
+
+  const save = async () => {
+    if (!nome.trim()) return alert('Nome obrigatório')
+    if (chavePix.trim()) {
+      const v = validarChavePix(tipoPix, chavePix)
+      if (!v.ok) return alert('Chave Pix inválida: ' + v.msg)
+    }
+    await updatePessoa(pessoa.id, { nome: nome.trim(), funcao, telefone: tel, setor_id: setorId, val_seg_qui: parseCents(valSQ), val_sex_dom: parseCents(valSD), tipo_pix: tipoPix, chave_pix: chavePix.trim(), interno_casa: internoCasa, obs_fixa: obsFixa.trim() })
+    onClose()
+  }
+
+  return (
+    <Modal title="Editar Pessoa" onClose={onClose}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+        <div><label style={S.label}>Nome *</label><input value={nome} onChange={e => setNome(e.target.value)} style={S.input} /></div>
+        <div><label style={S.label}>Telefone WhatsApp</label><input value={tel} onChange={e => setTel(e.target.value)} style={S.input} placeholder="18999999999" inputMode="numeric" /></div>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <div style={{ flex: 1 }}><label style={S.label}>Função</label><input value={funcao} onChange={e => setFuncao(e.target.value)} style={S.input} /></div>
+          <div style={{ flex: 1 }}><label style={S.label}>Setor</label>
+            <select value={setorId} onChange={e => setSetorId(e.target.value)} style={S.input}>
+              <option value="">—</option>
+              {setores.filter(s => s.ativo).map(s => <option key={s.id} value={s.id}>{s.nome}</option>)}
+            </select>
+          </div>
+        </div>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <div style={{ flex: 1 }}><label style={S.label}>Seg-Qui</label><input value={valSQ} onChange={e => { const r = e.target.value.replace(/\D/g, ''); setValSQ(r ? fmt(parseInt(r)) : '') }} style={S.input} placeholder="R$ 0,00" inputMode="numeric" /></div>
+          <div style={{ flex: 1 }}><label style={S.label}>Sex-Dom</label><input value={valSD} onChange={e => { const r = e.target.value.replace(/\D/g, ''); setValSD(r ? fmt(parseInt(r)) : '') }} style={S.input} placeholder="R$ 0,00" inputMode="numeric" /></div>
+        </div>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <div style={{ flex: 1 }}><label style={S.label}>Tipo Pix</label>
+            <select value={tipoPix} onChange={e => setTipoPix(e.target.value)} style={S.input}>
+              {['CPF', 'Telefone', 'E-mail', 'Aleatória'].map(t => <option key={t}>{t}</option>)}
+            </select>
+          </div>
+          <div style={{ flex: 2 }}>
+            <label style={S.label}>Chave Pix</label>
+            <CampoPix tipoPix={tipoPix} chavePix={chavePix} setChavePix={setChavePix} />
+          </div>
+        </div>
+        <div>
+          <label style={S.label}>Observação permanente</label>
+          <input value={obsFixa} onChange={e => setObsFixa(e.target.value)} style={S.input} placeholder="Ex: sempre atrasa, só Pix, não trabalha domingo..." />
+        </div>
+        <div onClick={() => setInternoCasa(!internoCasa)}
+          style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', background: internoCasa ? '#eff6ff' : '#f5f0e8', border: `2px solid ${internoCasa ? '#3b82f6' : '#e0d5c5'}`, borderRadius: 10, cursor: 'pointer' }}>
+          <div style={{ width: 20, height: 20, borderRadius: 4, border: `2px solid ${internoCasa ? '#3b82f6' : '#ccc'}`, background: internoCasa ? '#3b82f6' : '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            {internoCasa && <span style={{ color: '#fff', fontSize: 13, fontWeight: 700 }}>✓</span>}
+          </div>
+          <div>
+            <div style={{ fontWeight: 600, fontSize: 13, color: internoCasa ? '#1e40af' : '#666' }}>🏠 Funcionário da casa</div>
+            <div style={{ fontSize: 11, color: '#8a7355' }}>Marque se essa pessoa é funcionário fixo que também faz extra</div>
+          </div>
+        </div>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button onClick={onClose} style={{ ...S.btn(C.textDim, true) }}>Cancelar</button>
+          <button onClick={save} style={{ ...S.btn(C.primary), flex: 2 }}>Salvar</button>
+        </div>
+      </div>
+    </Modal>
+  )
+}
+
+// ─── ABA CONFIG ───────────────────────────────────────────────────────────────
+
+function SecaoAssinaturas({ store }) {
+  const { extras, updateExtra } = store
+  const [periodo, setPeriodo] = useState(30)
+  const [limpando, setLimpando] = useState(false)
+  const [resultado, setResultado] = useState('')
+
+  const extrasComAssinatura = extras.filter(e => e.assinatura && e.assinatura.length > 0)
+  const hoje = new Date()
+
+  const limpar = async () => {
+    if (!confirm(`Apagar assinaturas de extras com mais de ${periodo} dias? O restante dos dados fica salvo.`)) return
+    setLimpando(true)
+    setResultado('')
+    let count = 0
+    for (const e of extrasComAssinatura) {
+      const dataExtra = new Date(e.data_op + 'T12:00:00')
+      const diffDias = Math.floor((hoje - dataExtra) / (1000 * 60 * 60 * 24))
+      if (diffDias >= periodo) {
+        await updateExtra(e.id, { assinatura: null })
+        count++
+      }
+    }
+    setLimpando(false)
+    setResultado(`✓ ${count} assinatura${count !== 1 ? 's' : ''} apagada${count !== 1 ? 's' : ''}`)
+    setTimeout(() => setResultado(''), 4000)
+  }
+
+  const totalKb = Math.round(extrasComAssinatura.reduce((a, e) => a + (e.assinatura?.length || 0), 0) / 1024)
+
+  return (
+    <div style={S.card}>
+      <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 12 }}>✍️ Assinaturas</div>
+      <div style={{ fontSize: 13, color: '#8a7355', marginBottom: 12 }}>
+        {extrasComAssinatura.length} assinatura{extrasComAssinatura.length !== 1 ? 's' : ''} salvas · ~{totalKb}kb no banco
+      </div>
+
+      <label style={S.label}>Apagar assinaturas mais antigas que</label>
+      <div style={{ display: 'flex', gap: 6, marginBottom: 12, flexWrap: 'wrap' }}>
+        {[7, 15, 30, 60, 90].map(d => (
+          <button key={d} onClick={() => setPeriodo(d)}
+            style={{ padding: '6px 12px', border: `2px solid ${periodo === d ? '#c9a96e' : '#e0d5c5'}`, borderRadius: 20, background: periodo === d ? '#c9a96e' : '#fff', color: periodo === d ? '#fff' : '#666', fontSize: 12, fontWeight: periodo === d ? 700 : 400, cursor: 'pointer' }}>
+            {d} dias
+          </button>
+        ))}
+      </div>
+
+      <div style={{ fontSize: 12, color: '#999', marginBottom: 12 }}>
+        {extrasComAssinatura.filter(e => {
+          const diff = Math.floor((hoje - new Date(e.data_op + 'T12:00:00')) / (1000 * 60 * 60 * 24))
+          return diff >= periodo
+        }).length} assinatura{extrasComAssinatura.filter(e => Math.floor((hoje - new Date(e.data_op + 'T12:00:00')) / (1000 * 60 * 60 * 24)) >= periodo).length !== 1 ? 's' : ''} serão apagadas
+      </div>
+
+      <button onClick={limpar} disabled={limpando}
+        style={{ ...S.btn(limpando ? '#ccc' : '#ef4444'), fontWeight: 700 }}>
+        {limpando ? 'Limpando...' : `🗑 Limpar assinaturas +${periodo} dias`}
+      </button>
+
+      {resultado ? (
+        <div style={{ marginTop: 10, fontSize: 13, color: '#22c55e', fontWeight: 600, textAlign: 'center' }}>{resultado}</div>
+      ) : null}
+    </div>
+  )
+}
+
+function TabConfig({ store, setModal }) {
+  const { setores, addSetor, updateSetor, removeSetor, pessoas, removePessoa, config, updateConfig } = store
+  const [novoSetor, setNovoSetor] = useState('')
+  const [nomeEstab, setNomeEstab] = useState(config.nome_estabelecimento)
+  const [whatsapp, setWhatsapp] = useState(config.whatsapp_pix)
+  const [horaVirada, setHoraVirada] = useState(String(config.horario_virada_h).padStart(2, '0'))
+  const [minVirada, setMinVirada] = useState(String(config.horario_virada_m).padStart(2, '0'))
+  const [savedMsg, setSavedMsg] = useState('')
+
+  const salvarGeral = () => {
+    updateConfig({
+      nome_estabelecimento: nomeEstab.trim() || 'ARACÁ GRILL',
+      whatsapp_pix: whatsapp.replace(/\D/g, ''),
+      horario_virada_h: Math.min(23, Math.max(0, parseInt(horaVirada) || 2)),
+      horario_virada_m: Math.min(59, Math.max(0, parseInt(minVirada) || 30)),
+    })
+    setSavedMsg('✓ Salvo!')
+    setTimeout(() => setSavedMsg(''), 2500)
+  }
+
+  return (
+    <div>
+      <div style={S.card}>
+        <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 14 }}>🏠 Estabelecimento</div>
+        <div style={{ marginBottom: 10 }}>
+          <label style={S.label}>Nome do estabelecimento</label>
+          <input value={nomeEstab} onChange={e => setNomeEstab(e.target.value)} style={S.input} placeholder="Ex: ARACÁ GRILL" />
+        </div>
+        <div style={{ marginBottom: 10 }}>
+          <label style={S.label}>WhatsApp para envio do Pix</label>
+          <input value={whatsapp} onChange={e => setWhatsapp(e.target.value)} style={S.input} placeholder="5518999999999" inputMode="numeric" />
+          <div style={{ fontSize: 11, color: '#999', marginTop: 4 }}>Com DDI+DDD, sem espaços. Ex: 5518996530959</div>
+        </div>
+        <div style={{ marginBottom: 14 }}>
+          <label style={S.label}>Horário de virada do dia operacional</label>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+            <input value={horaVirada} onChange={e => setHoraVirada(e.target.value)} style={{ ...S.input, width: 64, textAlign: 'center' }} placeholder="02" inputMode="numeric" maxLength={2} />
+            <span style={{ fontWeight: 700, color: '#8a7355' }}>:</span>
+            <input value={minVirada} onChange={e => setMinVirada(e.target.value)} style={{ ...S.input, width: 64, textAlign: 'center' }} placeholder="30" inputMode="numeric" maxLength={2} />
+            <span style={{ fontSize: 12, color: '#999' }}>horas</span>
+          </div>
+          <div style={{ fontSize: 11, color: '#999', marginTop: 4 }}>Antes desse horário o sistema usa a data do dia anterior.</div>
+        </div>
+        <div style={{ marginBottom: 14 }}>
+          <label style={S.label}>Senha mestre de emergência</label>
+          <input
+            type="password"
+            value={config.senha_mestre || ''}
+            onChange={e => updateConfig({ senha_mestre: e.target.value })}
+            style={S.input}
+            placeholder="Deixe em branco para desativar"
+          />
+          <div style={{ fontSize: 11, color: C.textMuted, marginTop: 4 }}>
+            Com essa senha qualquer usuário consegue logar como admin de emergência.
+          </div>
+        </div>
+        <button onClick={salvarGeral} style={{ ...S.btn(savedMsg ? C.success : C.primary) }}>
+          {savedMsg || 'Salvar configurações'}
+        </button>
+      </div>
+
+      <div style={S.card}>
+        <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 12 }}>📁 Setores</div>
+        {setores.map(s => (
+          <div key={s.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 0', borderBottom: '1px solid #f0e8d8' }}>
+            <span style={{ fontSize: 14 }}>{s.nome}</span>
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+              <button onClick={() => updateSetor(s.id, { ativo: !s.ativo })}
+                style={{ background: 'none', border: `1px solid ${s.ativo ? '#22c55e' : '#ccc'}`, borderRadius: 6, padding: '3px 10px', fontSize: 11, color: s.ativo ? '#22c55e' : '#999', cursor: 'pointer', fontWeight: 600 }}>
+                {s.ativo ? 'Ativo' : 'Inativo'}
+              </button>
+              <button onClick={() => { if (confirm('Remover setor ' + s.nome + '?')) removeSetor(s.id) }}
+                style={{ background: 'none', border: 'none', color: '#ef4444', fontSize: 16, cursor: 'pointer' }}>🗑</button>
+            </div>
+          </div>
+        ))}
+        <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
+          <input value={novoSetor} onChange={e => setNovoSetor(e.target.value)} style={{ ...S.input, flex: 1 }} placeholder="Novo setor..." />
+          <button onClick={() => { if (novoSetor.trim()) { addSetor({ nome: novoSetor.trim(), ativo: true }); setNovoSetor('') } }}
+            style={{ ...S.btn(C.primary), flex: 'none', padding: '10px 18px' }}>+</button>
+        </div>
+      </div>
+
+      <div style={S.card}>
+        <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 12 }}>👥 Pessoas ({pessoas.length})</div>
+        {pessoas.length === 0 && <div style={{ fontSize: 13, color: '#999', textAlign: 'center', padding: 16 }}>Nenhuma pessoa cadastrada</div>}
+        {pessoas.map(p => (
+          <div key={p.id} style={{ padding: '10px 0', borderBottom: '1px solid #f0e8d8' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+              <div>
+                <div style={{ fontWeight: 600, fontSize: 14 }}>{p.nome}</div>
+                <div style={{ fontSize: 12, color: '#8a7355' }}>{p.funcao}</div>
+                <div style={{ fontSize: 12, color: '#8a7355' }}>Seg-Qui: {fmt(p.val_seg_qui)} · Sex-Dom: {fmt(p.val_sex_dom)}</div>
+                <div style={{ fontSize: 12, color: '#64748b' }}>{p.tipo_pix}: {p.chave_pix}</div>
+                {p.telefone ? <div style={{ fontSize: 12, color: '#3b82f6' }}>📱 {p.telefone}</div> : null}
+                {totalTrocos(p.trocos) > 0 && (
+                  <div style={{ fontSize: 11, color: '#ef4444', fontWeight: 600, marginTop: 2 }}>
+                    🔴 Troco pendente: {fmt(totalTrocos(p.trocos))}
+                    {(p.trocos || []).map((t, i) => (
+                      <span key={i} style={{ display: 'block', marginLeft: 8, fontWeight: 400 }}>• {dayLabel(t.data)}: {fmt(t.valor)}</span>
+                    ))}
+                  </div>
+                )}
+              </div>
+              <div style={{ display: 'flex', gap: 6 }}>
+                <button onClick={() => setModal({ type: 'editPessoa', pessoa: p })}
+                  style={{ background: 'none', border: '1px solid #c9a96e', borderRadius: 6, padding: '4px 10px', fontSize: 12, color: '#c9a96e', cursor: 'pointer' }}>✏️</button>
+                <button onClick={() => { if (confirm('Remover ' + p.nome + '?')) removePessoa(p.id) }}
+                  style={{ background: 'none', border: 'none', color: '#ef4444', fontSize: 18, cursor: 'pointer' }}>🗑</button>
+              </div>
+            </div>
+          </div>
+        ))}
+        <button onClick={() => setModal({ type: 'addPessoa' })} style={{ ...S.btn(C.accent), marginTop: 12 }}>+ Nova Pessoa</button>
+      </div>
+
+      {/* Usuários */}
+      <SecaoUsuarios />
+
+      {/* Assinaturas */}
+      <SecaoAssinaturas store={store} />
+
+      {/* Zona de perigo */}
+      <div style={{ ...S.card, border: `1px solid ${C.danger}44`, background: '#1a0808' }}>
+        <div style={{ fontSize: 14, fontWeight: 800, color: C.danger, marginBottom: 14 }}>⚠️ Zona de Perigo</div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+          <button onClick={() => setModal({ type: 'redefinirSenha' })}
+            style={{ ...S.btn(C.gold, true), textAlign: 'left', padding: '12px 16px' }}>
+            🔑 Redefinir senha de usuário
+          </button>
+          <button onClick={() => setModal({ type: 'limparBanco' })}
+            style={{ ...S.btn(C.danger, true), textAlign: 'left', padding: '12px 16px' }}>
+            🗑 Limpar banco de dados
+          </button>
+        </div>
+      </div>
+
+      <div style={{ ...S.card, background: C.bgCard2, border: `1px solid ${C.border}` }}>
+        <div style={{ fontSize: 12, color: C.secondary, fontWeight: 700 }}>ℹ️ {config.nome_estabelecimento} v2.0</div>
+        <div style={{ fontSize: 12, color: C.textMuted }}>Sistema operacional de extras · Firebase Firestore</div>
+      </div>
+    </div>
+  )
+}
+
+
+// ─── MODAL EDITAR PAGAMENTO JÁ EFETUADO ──────────────────────────────────────
+
+function ModalEditarPagamento({ store, extra, onClose }) {
+  const { updateExtra, registrarLog, usuario } = store
+  const [valorDisplay, setValorDisplay] = useState(fmt(extra.valor_final))
+  const [forma, setForma] = useState(extra.forma_pagamento || 'dinheiro')
+  const [obs, setObs] = useState(extra.obs || '')
+  const [motivoEdicao, setMotivoEdicao] = useState('')
+  const [salvando, setSalvando] = useState(false)
+
+  const salvar = async () => {
+    if (!motivoEdicao.trim()) return alert('Informe o motivo da edição.')
+    setSalvando(true)
+    const novoValor = parseCents(valorDisplay)
+    const valorOriginal = extra.valor_extra || extra.valor_original || extra.valor_final
+    const trocoAnterior = extra.troco_gerado || 0
+
+    // Recalcula troco: se pagou menos ou igual ao combinado, zera troco
+    const novoTroco = novoValor > valorOriginal ? novoValor - valorOriginal : 0
+
+    const alteracoes = {
+      valor_final: novoValor,
+      valor_pago: novoValor,
+      forma_pagamento: forma,
+      obs: obs.trim(),
+      editado: true,
+      editado_por: usuario?.nome || 'desconhecido',
+      editado_em: new Date().toISOString(),
+      motivo_edicao: motivoEdicao.trim(),
+      troco_gerado: novoTroco,
+    }
+    await updateExtra(extra.id, alteracoes)
+
+    // Atualiza trocos do funcionário se mudou
+    if (pessoa && novoTroco !== trocoAnterior) {
+      const trocosFiltrados = (pessoa.trocos || []).filter(t =>
+        !(t.descricao && t.descricao.includes(dayLabel(extra.data_op)))
+      )
+      if (novoTroco > 0) {
+        trocosFiltrados.push({ data: extra.data_op, valor: novoTroco, descricao: `Troco editado — ${dayLabel(extra.data_op)}` })
+      }
+      await updatePessoa(pessoa.id, { trocos: trocosFiltrados })
+    }
+
+    await registrarLog('edicao_pagamento', {
+      extra_id: extra.id,
+      nome: extra.nome,
+      valor_anterior: extra.valor_final,
+      valor_novo: novoValor,
+      troco_anterior: trocoAnterior,
+      troco_novo: novoTroco,
+      forma_anterior: extra.forma_pagamento,
+      forma_nova: forma,
+      motivo: motivoEdicao.trim(),
+    })
+    setSalvando(false)
+    onClose()
+  }
+
+  return (
+    <Modal title="Editar Pagamento" onClose={onClose}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+        {/* Info do extra */}
+        <div style={{ background: C.bgCard2, borderRadius: 12, padding: 12, border: `1px solid ${C.border}` }}>
+          <div style={{ fontWeight: 800, fontSize: 16, color: C.text }}>{extra.nome}</div>
+          <div style={{ fontSize: 12, color: C.textMuted }}>{extra.funcao}{extra.turnos ? ' · ' + extra.turnos : ''} · {dayLabel(extra.data_op)}</div>
+          {extra.editado && (
+            <div style={{ fontSize: 11, color: C.gold, marginTop: 4 }}>
+              ⚠ Já editado por {extra.editado_por} em {new Date(extra.editado_em).toLocaleDateString('pt-BR')}
+            </div>
+          )}
+        </div>
+
+        {/* Valor */}
+        <div>
+          <label style={S.label}>Valor pago</label>
+          <input value={valorDisplay}
+            onChange={e => { const r = e.target.value.replace(/\D/g, ''); setValorDisplay(r ? fmt(parseInt(r)) : '') }}
+            style={{ ...S.input, fontSize: 20, fontWeight: 800 }} inputMode="numeric" />
+        </div>
+
+        {/* Forma */}
+        <div>
+          <label style={S.label}>Forma de pagamento</label>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button onClick={() => setForma('dinheiro')}
+              style={{ flex: 1, padding: '12px', border: `2px solid ${forma === 'dinheiro' ? C.success : C.border}`, borderRadius: 12, background: forma === 'dinheiro' ? C.success + '25' : C.bgCard2, cursor: 'pointer', fontSize: 13, fontWeight: 800, color: forma === 'dinheiro' ? C.success : C.textMuted }}>
+              💵 Dinheiro
+            </button>
+            <button onClick={() => setForma('pix')}
+              style={{ flex: 1, padding: '12px', border: `2px solid ${forma === 'pix' ? C.secondary : C.border}`, borderRadius: 12, background: forma === 'pix' ? C.secondary + '25' : C.bgCard2, cursor: 'pointer', fontSize: 13, fontWeight: 800, color: forma === 'pix' ? C.secondary : C.textMuted }}>
+              📱 Pix
+            </button>
+          </div>
+        </div>
+
+        {/* Observação do recibo */}
+        <div>
+          <label style={S.label}>Observação do recibo</label>
+          <input value={obs} onChange={e => setObs(e.target.value)}
+            style={S.input} placeholder="Ex: trabalhou direto, ficou além do turno..." />
+        </div>
+
+        {/* Motivo da edição — obrigatório */}
+        <div>
+          <label style={{ ...S.label, color: C.danger }}>Motivo da edição *</label>
+          <input value={motivoEdicao} onChange={e => setMotivoEdicao(e.target.value)}
+            style={{ ...S.input, borderColor: motivoEdicao ? C.border : C.danger + '88' }}
+            placeholder="Por que está editando este pagamento?" />
+          <div style={{ fontSize: 11, color: C.textMuted, marginTop: 4 }}>Obrigatório — ficará salvo no log com seu nome</div>
+        </div>
+
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button onClick={onClose} style={{ ...S.btn(C.textDim, true) }}>Cancelar</button>
+          <button onClick={salvar} disabled={salvando}
+            style={{ ...S.btn(salvando ? C.textDim : C.gold), flex: 2 }}>
+            {salvando ? 'Salvando...' : '✏️ Salvar edição'}
+          </button>
+        </div>
+      </div>
+    </Modal>
+  )
+}
+// ─── MODAL LIMPAR BANCO ───────────────────────────────────────────────────────
+
+function ModalLimparBanco({ store, onClose }) {
+  const { registrarLog, usuario } = store
+  const [opcoes, setOpcoes] = useState({
+    extras: true,
+    logs: true,
+    pessoas: false,
+    setores: false,
+    usuarios: false,
+    config: false,
+  })
+  const [confirmacao, setConfirmacao] = useState('')
+  const [limpando, setLimpando] = useState(false)
+  const [resultado, setResultado] = useState('')
+
+  const toggleOpcao = (k) => setOpcoes(p => ({ ...p, [k]: !p[k] }))
+
+  const limpar = async () => {
+    if (confirmacao !== 'LIMPAR') return alert('Digite LIMPAR em maiúsculas para confirmar.')
+    setLimpando(true)
+    try {
+      for (const [col, ativo] of Object.entries(opcoes)) {
+        if (!ativo) continue
+        const snap = await getDocs(collection(db, col))
+        const lote = []
+        snap.forEach(d => lote.push(deleteDoc(doc(db, col, d.id))))
+        await Promise.all(lote)
+      }
+      await registrarLog('limpeza_banco', { opcoes, usuario: usuario?.nome })
+      setResultado('✅ Dados apagados com sucesso!')
+      setTimeout(() => { onClose(); window.location.reload() }, 2000)
+    } catch (e) {
+      setResultado('❌ Erro ao limpar: ' + e.message)
+    }
+    setLimpando(false)
+  }
+
+  const itens = [
+    { key: 'extras',   label: 'Extras e pagamentos', desc: 'Todo histórico de extras e pagamentos', danger: true },
+    { key: 'logs',     label: 'Logs de atividade',   desc: 'Histórico de ações e edições', danger: false },
+    { key: 'pessoas',  label: 'Pessoas cadastradas', desc: 'Todos os funcionários extras', danger: true },
+    { key: 'setores',  label: 'Setores',             desc: 'Cozinha, Bar, Churrasqueira...', danger: false },
+    { key: 'usuarios', label: 'Usuários do sistema', desc: 'Contas de acesso (cuidado!)', danger: true },
+    { key: 'config',   label: 'Configurações',       desc: 'Nome, WhatsApp, horário de virada', danger: false },
+  ]
+
+  return (
+    <Modal title="⚠️ Limpar Banco de Dados" onClose={onClose}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+        <div style={{ background: '#2a0d0d', border: '1px solid #ef444455', borderRadius: 12, padding: 12 }}>
+          <div style={{ fontSize: 13, color: '#ff6b6b', fontWeight: 700 }}>⚠️ Atenção — ação irreversível!</div>
+          <div style={{ fontSize: 12, color: '#ffaaaa', marginTop: 4 }}>Os dados apagados não poderão ser recuperados.</div>
+        </div>
+
+        <label style={S.label}>O que apagar:</label>
+        {itens.map(item => (
+          <div key={item.key} onClick={() => toggleOpcao(item.key)}
+            style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', background: opcoes[item.key] ? (item.danger ? '#2a0d0d' : C.bgCard2) : C.bgCard, border: `1px solid ${opcoes[item.key] ? (item.danger ? '#ef4444' : C.primary) : C.border}`, borderRadius: 10, cursor: 'pointer' }}>
+            <div style={{ width: 20, height: 20, borderRadius: 5, border: `2px solid ${opcoes[item.key] ? (item.danger ? '#ef4444' : C.primary) : C.border}`, background: opcoes[item.key] ? (item.danger ? '#ef4444' : C.primary) : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+              {opcoes[item.key] && <span style={{ color: '#fff', fontSize: 13, fontWeight: 800 }}>✓</span>}
+            </div>
+            <div>
+              <div style={{ fontSize: 13, fontWeight: 700, color: opcoes[item.key] && item.danger ? '#ff6b6b' : C.text }}>{item.label}</div>
+              <div style={{ fontSize: 11, color: C.textMuted }}>{item.desc}</div>
+            </div>
+          </div>
+        ))}
+
+        <div>
+          <label style={{ ...S.label, color: C.danger }}>Digite LIMPAR para confirmar</label>
+          <input value={confirmacao} onChange={e => setConfirmacao(e.target.value)}
+            style={{ ...S.input, borderColor: confirmacao === 'LIMPAR' ? C.danger : C.border, color: C.danger, fontWeight: 800, textAlign: 'center', fontSize: 16 }}
+            placeholder="LIMPAR" autoCapitalize="characters" />
+        </div>
+
+        {resultado && <div style={{ fontSize: 14, fontWeight: 700, textAlign: 'center', color: resultado.includes('✅') ? C.success : C.danger }}>{resultado}</div>}
+
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button onClick={onClose} style={{ ...S.btn(C.textDim, true) }}>Cancelar</button>
+          <button onClick={limpar} disabled={limpando || confirmacao !== 'LIMPAR'}
+            style={{ ...S.btn(confirmacao === 'LIMPAR' ? C.danger : C.textDim), flex: 2 }}>
+            {limpando ? 'Apagando...' : '🗑 Confirmar limpeza'}
+          </button>
+        </div>
+      </div>
+    </Modal>
+  )
+}
+// ─── MODAL REDEFINIR SENHA ────────────────────────────────────────────────────
+
+function ModalRedefinirSenha({ store, onClose }) {
+  const { registrarLog, usuario } = store
+  const [usuarios, setUsuarios] = useState([])
+  const [usuarioSel, setUsuarioSel] = useState('')
+  const [novaSenha, setNovaSenha] = useState('')
+  const [senhaRep, setSenhaRep] = useState('')
+  const [salvando, setSalvando] = useState(false)
+  const [msg, setMsg] = useState('')
+
+  useEffect(() => {
+    getDocs(collection(db, 'usuarios')).then(snap => {
+      setUsuarios(snap.docs.map(d => ({ id: d.id, ...d.data() })))
+    })
+  }, [])
+
+  const salvar = async () => {
+    if (!usuarioSel) return setMsg('Selecione um usuário.')
+    if (novaSenha.length < 4) return setMsg('Senha precisa ter pelo menos 4 caracteres.')
+    if (novaSenha !== senhaRep) return setMsg('As senhas não coincidem.')
+    setSalvando(true)
+    const hash = await hashSenha(novaSenha)
+    await updateDoc(doc(db, 'usuarios', usuarioSel), { senha: hash })
+    await registrarLog('redefinicao_senha', { usuario_alvo: usuarios.find(u => u.id === usuarioSel)?.usuario })
+    setMsg('✅ Senha redefinida com sucesso!')
+    setSalvando(false)
+    setTimeout(onClose, 2000)
+  }
+
+  return (
+    <Modal title="🔑 Redefinir Senha" onClose={onClose}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+        <div>
+          <label style={S.label}>Usuário</label>
+          <select value={usuarioSel} onChange={e => setUsuarioSel(e.target.value)} style={S.input}>
+            <option value="">— Selecionar —</option>
+            {usuarios.map(u => <option key={u.id} value={u.id}>{u.nome} (@{u.usuario})</option>)}
+          </select>
+        </div>
+        <div>
+          <label style={S.label}>Nova senha</label>
+          <input type="password" value={novaSenha} onChange={e => setNovaSenha(e.target.value)} style={S.input} placeholder="Mínimo 4 caracteres" />
+        </div>
+        <div>
+          <label style={S.label}>Confirmar nova senha</label>
+          <input type="password" value={senhaRep} onChange={e => setSenhaRep(e.target.value)} style={S.input} placeholder="Repita a senha" />
+        </div>
+        {msg && <div style={{ fontSize: 13, fontWeight: 700, textAlign: 'center', color: msg.includes('✅') ? C.success : C.danger }}>{msg}</div>}
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button onClick={onClose} style={{ ...S.btn(C.textDim, true) }}>Cancelar</button>
+          <button onClick={salvar} disabled={salvando} style={{ ...S.btn(C.primary), flex: 2 }}>
+            {salvando ? 'Salvando...' : '🔑 Redefinir'}
+          </button>
+        </div>
+      </div>
+    </Modal>
+  )
+}
+// ─── TELA DE LOGIN ────────────────────────────────────────────────────────────
+
+function TelaLogin({ onLogin }) {
+  const [modo, setModo] = useState('login') // 'login' | 'cadastro' | 'aguardando'
+  const [login, setLogin] = useState('')
+  const [senha, setSenha] = useState('')
+  const [nome, setNome] = useState('')
+  const [erro, setErro] = useState('')
+  const [loading, setLoading] = useState(false)
+
+  const entrar = async () => {
+    if (!login.trim() || !senha.trim()) return setErro('Preencha usuário e senha.')
+    setLoading(true); setErro('')
+    try {
+      // Verifica senha mestre primeiro
+      const configSnap = await getDoc(doc(db, 'configuracoes', 'geral'))
+      const senhaMestre = configSnap.exists() ? configSnap.data().senha_mestre : ''
+      if (senhaMestre && senha === senhaMestre) {
+        // Loga como admin mestre sem verificar usuário
+        const hashMestre = await hashSenha(senha)
+        const qMestre = query(collection(db, 'usuarios'), where('role', '==', 'admin'))
+        const snapMestre = await getDocs(qMestre)
+        if (!snapMestre.empty) {
+          onLogin({ id: snapMestre.docs[0].id, ...snapMestre.docs[0].data() })
+          setLoading(false); return
+        }
+      }
+      const hash = await hashSenha(senha)
+      const q = query(collection(db, 'usuarios'), where('usuario', '==', login.trim().toLowerCase()), where('senha', '==', hash))
+      const snap = await getDocs(q)
+      if (snap.empty) { setErro('Usuário ou senha incorretos.'); setLoading(false); return }
+      const u = { id: snap.docs[0].id, ...snap.docs[0].data() }
+      if (u.status === 'pendente') { setErro('Seu cadastro ainda não foi aprovado pelo administrador.'); setLoading(false); return }
+      if (u.status === 'rejeitado') { setErro('Seu acesso foi negado. Entre em contato com o administrador.'); setLoading(false); return }
+      onLogin(u)
+    } catch (e) { setErro('Erro ao conectar. Verifique sua internet.') }
+    setLoading(false)
+  }
+
+  const cadastrar = async () => {
+    if (!nome.trim() || !login.trim() || !senha.trim()) return setErro('Preencha todos os campos.')
+    if (senha.length < 4) return setErro('Senha precisa ter pelo menos 4 caracteres.')
+    setLoading(true); setErro('')
+    try {
+      // Verifica se usuário já existe
+      const q = query(collection(db, 'usuarios'), where('usuario', '==', login.trim().toLowerCase()))
+      const snap = await getDocs(q)
+      if (!snap.empty) { setErro('Esse usuário já existe. Escolha outro.'); setLoading(false); return }
+      // Verifica se é o primeiro usuário (vira admin automaticamente)
+      const todos = await getDocs(collection(db, 'usuarios'))
+      const hash = await hashSenha(senha)
+      const role = todos.empty ? 'admin' : 'operador'
+      const status = todos.empty ? 'aprovado' : 'pendente'
+      await addDoc(collection(db, 'usuarios'), {
+        nome: nome.trim(),
+        usuario: login.trim().toLowerCase(),
+        senha: hash,
+        role,
+        status,
+        criado_em: new Date().toISOString(),
+      })
+      if (todos.empty) {
+        // Primeiro usuário — loga direto
+        const snap2 = await getDocs(query(collection(db, 'usuarios'), where('usuario', '==', login.trim().toLowerCase())))
+        const u = { id: snap2.docs[0].id, ...snap2.docs[0].data() }
+        onLogin(u)
+      } else {
+        setModo('aguardando')
+      }
+    } catch (e) { setErro('Erro ao cadastrar. Tente novamente.') }
+    setLoading(false)
+  }
+
+  const S2 = {
+    tela: {
+      minHeight: '100vh',
+      background: `linear-gradient(135deg, ${C.bg} 0%, #e4ddd4 100%)`,
+      display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+      padding: 24,
+      fontFamily: "'Inter', system-ui, -apple-system, sans-serif",
+    },
+    card: {
+      background: '#ffffff',
+      borderRadius: 24,
+      padding: '40px 32px',
+      width: '100%', maxWidth: 400,
+      boxShadow: '0 10px 40px rgba(0,0,0,0.08)',
+      border: `1px solid ${C.border}`,
+      textAlign: 'center',
+    },
+    input: {
+      width: '100%', padding: '14px 18px',
+      border: `1.5px solid ${C.border}`,
+      borderRadius: 12,
+      fontFamily: 'inherit', fontSize: 15,
+      background: '#fafafa',
+      boxSizing: 'border-box', marginBottom: 12,
+      color: C.text, outline: 'none',
+    },
+    btn: (bg) => ({
+      width: '100%', padding: '15px',
+      background: bg === C.textDim ? C.bgCard2 : `linear-gradient(to bottom, ${bg}, ${bg}dd)`,
+      color: bg === C.textDim ? C.textMuted : '#fff',
+      border: 'none', borderRadius: 12,
+      fontFamily: 'inherit', fontSize: 15, fontWeight: 800,
+      cursor: 'pointer', marginBottom: 10,
+      boxShadow: bg === C.primary ? '0 4px 16px rgba(181,118,58,0.3)' : 'none',
+    }),
+    erro: { color: C.danger, fontSize: 13, textAlign: 'center', marginBottom: 10, fontWeight: 600 },
+    link: { color: C.secondary, fontSize: 13, textAlign: 'center', cursor: 'pointer', fontWeight: 600 },
+  }
+
+  const Deco = () => null // decorações removidas no novo design limpo
+
+  if (modo === 'aguardando') return (
+    <div style={S2.tela}>
+      <div style={S2.card}>
+        <div style={{ fontSize: 56, marginBottom: 16 }}>⏳</div>
+        <div style={{ fontWeight: 800, fontSize: 20, color: C.text, marginBottom: 8 }}>Cadastro enviado!</div>
+        <div style={{ fontSize: 14, color: C.textMuted, marginBottom: 24, lineHeight: 1.6 }}>Aguarde o administrador aprovar seu acesso. Volte em breve.</div>
+        <button onClick={() => setModo('login')} style={S2.btn(C.secondary)}>← Voltar ao login</button>
+      </div>
+    </div>
+  )
+
+  return (
+    <div style={S2.tela}>
+      <div style={S2.card}>
+        <div style={{ fontSize: 48, marginBottom: 12 }}>🔥</div>
+        <h1 style={{ margin: 0, fontSize: 28, fontWeight: 900, letterSpacing: '-0.04em', color: C.text }}>Aracá Grill</h1>
+        <p style={{ color: C.textMuted, fontSize: 14, marginTop: 6, marginBottom: 28 }}>
+          {modo === 'login' ? 'Gestão Operacional de Extras' : 'Solicitar Acesso ao Sistema'}
+        </p>
+        <div style={{ textAlign: 'left' }}>
+        {modo === 'cadastro' && (
+          <input value={nome} onChange={e => setNome(e.target.value)} style={S2.input} placeholder="Seu nome completo" />
+        )}
+        <input value={login} onChange={e => setLogin(e.target.value)} style={S2.input} placeholder="Usuário" autoCapitalize="none" />
+        <input value={senha} onChange={e => setSenha(e.target.value)} style={S2.input} placeholder="Senha" type="password" />
+        {erro ? <div style={S2.erro}>{erro}</div> : null}
+        <button onClick={modo === 'login' ? entrar : cadastrar} disabled={loading}
+          style={S2.btn(loading ? C.textDim : C.primary)}>
+          {loading ? 'Aguarde...' : modo === 'login' ? 'Entrar no Sistema' : 'Solicitar Acesso'}
+        </button>
+        <div style={{ ...S2.link, marginTop: 4 }} onClick={() => { setErro(''); setModo(modo === 'login' ? 'cadastro' : 'login') }}>
+          {modo === 'login' ? 'Não tenho acesso? Solicitar cadastro' : 'Já tenho cadastro — Entrar'}
+        </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ─── SEÇÃO USUÁRIOS NO CONFIG (só admin) ──────────────────────────────────────
+
+function SecaoUsuarios() {
+  const [usuarios, setUsuarios] = useState([])
+
+  useEffect(() => {
+    const unsub = onSnapshot(collection(db, 'usuarios'), s => {
+      setUsuarios(s.docs.map(d => ({ id: d.id, ...d.data() })))
+    })
+    return unsub
+  }, [])
+
+  const aprovar = async (id) => await updateDoc(doc(db, 'usuarios', id), { status: 'aprovado' })
+  const rejeitar = async (id) => await updateDoc(doc(db, 'usuarios', id), { status: 'rejeitado' })
+  const tornarAdmin = async (id) => await updateDoc(doc(db, 'usuarios', id), { role: 'admin' })
+  const remover = async (id) => { if (confirm('Remover usuário?')) await deleteDoc(doc(db, 'usuarios', id)) }
+
+  const pendentes = usuarios.filter(u => u.status === 'pendente')
+  const aprovados = usuarios.filter(u => u.status === 'aprovado')
+  const rejeitados = usuarios.filter(u => u.status === 'rejeitado')
+
+  return (
+    <div style={S.card}>
+      <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 12 }}>👥 Usuários do Sistema</div>
+
+      {pendentes.length > 0 && <>
+        <div style={{ fontSize: 12, color: '#f59e0b', fontWeight: 700, marginBottom: 6 }}>⏳ Aguardando aprovação ({pendentes.length})</div>
+        {pendentes.map(u => (
+          <div key={u.id} style={{ background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 8, padding: '10px 12px', marginBottom: 8 }}>
+            <div style={{ fontWeight: 600 }}>{u.nome}</div>
+            <div style={{ fontSize: 12, color: '#92400e' }}>@{u.usuario}</div>
+            <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
+              <button onClick={() => aprovar(u.id)} style={{ ...S.btn('#22c55e'), fontSize: 12, padding: '6px 10px' }}>✓ Aprovar</button>
+              <button onClick={() => rejeitar(u.id)} style={{ ...S.btn('#ef4444'), fontSize: 12, padding: '6px 10px' }}>✕ Rejeitar</button>
+            </div>
+          </div>
+        ))}
+      </>}
+
+      {aprovados.length > 0 && <>
+        <div style={{ fontSize: 12, color: '#22c55e', fontWeight: 700, marginBottom: 6, marginTop: 8 }}>✓ Aprovados ({aprovados.length})</div>
+        {aprovados.map(u => (
+          <div key={u.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 0', borderBottom: '1px solid #f0e8d8' }}>
+            <div>
+              <div style={{ fontWeight: 600, fontSize: 13 }}>{u.nome}</div>
+              <div style={{ fontSize: 11, color: '#8a7355' }}>@{u.usuario} · {u.role === 'admin' ? '👑 Admin' : 'Operador'}</div>
+            </div>
+            <div style={{ display: 'flex', gap: 6 }}>
+              {u.role !== 'admin' && <button onClick={() => tornarAdmin(u.id)} style={{ background: 'none', border: '1px solid #c9a96e', borderRadius: 6, padding: '3px 8px', fontSize: 10, color: '#c9a96e', cursor: 'pointer' }}>👑</button>}
+              <button onClick={() => remover(u.id)} style={{ background: 'none', border: 'none', color: '#ef4444', fontSize: 16, cursor: 'pointer' }}>🗑</button>
+            </div>
+          </div>
+        ))}
+      </>}
+
+      {rejeitados.length > 0 && <>
+        <div style={{ fontSize: 12, color: '#ef4444', fontWeight: 700, marginBottom: 6, marginTop: 8 }}>✕ Rejeitados ({rejeitados.length})</div>
+        {rejeitados.map(u => (
+          <div key={u.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 0' }}>
+            <div style={{ fontSize: 13, color: '#999' }}>{u.nome} (@{u.usuario})</div>
+            <div style={{ display: 'flex', gap: 6 }}>
+              <button onClick={() => aprovar(u.id)} style={{ background: 'none', border: '1px solid #22c55e', borderRadius: 6, padding: '3px 8px', fontSize: 10, color: '#22c55e', cursor: 'pointer' }}>Aprovar</button>
+              <button onClick={() => remover(u.id)} style={{ background: 'none', border: 'none', color: '#ef4444', fontSize: 16, cursor: 'pointer' }}>🗑</button>
+            </div>
+          </div>
+        ))}
+      </>}
+    </div>
+  )
+}
