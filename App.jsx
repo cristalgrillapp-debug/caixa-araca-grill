@@ -810,73 +810,66 @@ function TabPagamentos({ store, today, setModal }) {
   const dinheiroTotal = useMemo(() => pendentes.filter(e => e.previsao !== 'pix').reduce((a, e) => a + e.valor_final, 0), [pendentes])
   const pixTotal = useMemo(() => pendentes.filter(e => e.previsao === 'pix').reduce((a, e) => a + e.valor_final, 0), [pendentes])
   const notes = useMemo(() => calcNotes(dinheiroTotal), [dinheiroTotal])
-
-  // Agrupa pendentes por setor em ordem alfabética
   const pendentesPorSetor = useMemo(() => {
-    const semSetor = { id: '__sem_setor__', nome: 'Sem setor' }
-    const setoresUsados = {}
+    const sem = { id: '__sem__', nome: 'Sem setor' }
+    const map = {}
     pendentes.forEach(e => {
-      const setor = setores.find(s => s.id === e.setor_id) || semSetor
-      if (!setoresUsados[setor.id]) setoresUsados[setor.id] = { setor, extras: [] }
-      setoresUsados[setor.id].extras.push(e)
+      const setor = setores.find(s => s.id === e.setor_id) || sem
+      if (!map[setor.id]) map[setor.id] = { setor, extras: [] }
+      map[setor.id].extras.push(e)
     })
-    return Object.values(setoresUsados).sort((a, b) => a.setor.nome.localeCompare(b.setor.nome))
+    return Object.values(map).sort((a, b) => a.setor.nome.localeCompare(b.setor.nome))
   }, [pendentes, setores])
-
-  // Controla quais setores estão abertos (todos abertos por padrão)
   const [setoresAbertos, setSetoresAbertos] = useState({})
   useEffect(() => {
-    const inicial = {}
-    pendentesPorSetor.forEach(g => { inicial[g.setor.id] = true })
-    setSetoresAbertos(inicial)
+    const ini = {}
+    pendentesPorSetor.forEach(g => { ini[g.setor.id] = true })
+    setSetoresAbertos(ini)
   }, [pendentesPorSetor.length])
-
   const toggleSetor = (id) => setSetoresAbertos(prev => ({ ...prev, [id]: !prev[id] }))
+
+  const coresNotas = { 100: { bg: '#1e3a5f', label: '#60a5fa', emoji: '💙' }, 50: { bg: '#3d1f00', label: '#fb923c', emoji: '🟠' }, 20: { bg: '#3d3000', label: '#fbbf24', emoji: '🟡' }, 10: { bg: '#3d0a2e', label: '#f472b6', emoji: '🩷' } }
 
   return (
     <div>
-      {/* Card resumo financeiro */}
       <div style={{ ...S.card, background: 'linear-gradient(135deg,#12122a,#1a0d2e)', color: '#fff' }}>
         <div style={{ display: 'flex', gap: 16, marginBottom: 12 }}>
           <div style={{ flex: 1 }}>
-            <div style={{ fontSize: 11, color: '#ffffff99', textTransform: 'uppercase', fontWeight: 700 }}>💵 Dinheiro</div>
+            <div style={{ fontSize: 11, color: '#ffffff99', textTransform: 'uppercase', fontWeight: 700 }}>Dinheiro</div>
             <div style={{ fontSize: 22, fontWeight: 800, color: '#10b981' }}>{fmt(dinheiroTotal)}</div>
           </div>
           <div style={{ flex: 1 }}>
-            <div style={{ fontSize: 11, color: '#ffffff99', textTransform: 'uppercase', fontWeight: 700 }}>📱 Pix</div>
+            <div style={{ fontSize: 11, color: '#ffffff99', textTransform: 'uppercase', fontWeight: 700 }}>Pix</div>
             <div style={{ fontSize: 22, fontWeight: 800, color: '#00c2cb' }}>{fmt(pixTotal)}</div>
           </div>
         </div>
         <div style={{ borderTop: '1px solid #ffffff20', paddingTop: 12 }}>
-          <div style={{ fontSize: 11, color: '#ffffff60', marginBottom: 10, textTransform: 'uppercase', letterSpacing: '0.08em', fontWeight: 700 }}>Notas necessárias</div>
+          <div style={{ fontSize: 11, color: '#ffffff60', marginBottom: 10, fontWeight: 700 }}>NOTAS NECESSARIAS</div>
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
             {Object.entries(notes).filter(([, q]) => q > 0).map(([n, q]) => {
-              const cores = { 100: { bg: '#1e3a5f', label: '#60a5fa', emoji: '💙' }, 50: { bg: '#3d1f00', label: '#fb923c', emoji: '🟠' }, 20: { bg: '#3d3000', label: '#fbbf24', emoji: '🟡' }, 10: { bg: '#3d0a2e', label: '#f472b6', emoji: '🩷' } }
-              const c = cores[Number(n)] || { bg: '#1a1a2e', label: '#fff', emoji: '💵' }
+              const c = coresNotas[Number(n)] || { bg: '#1a1a2e', label: '#fff', emoji: '💵' }
               return (
-                <div key={n} style={{ background: c.bg, border: `2px solid ${c.label}44`, borderRadius: 14, padding: '10px 14px', textAlign: 'center', minWidth: 60 }}>
+                <div key={n} style={{ background: c.bg, borderRadius: 14, padding: '10px 14px', textAlign: 'center', minWidth: 60 }}>
                   <div style={{ fontSize: 20 }}>{c.emoji}</div>
-                  <div style={{ fontSize: 22, fontWeight: 900, color: c.label, lineHeight: 1 }}>{q}×</div>
-                  <div style={{ fontSize: 11, color: c.label + 'aa', marginTop: 2, fontWeight: 700 }}>R${n}</div>
+                  <div style={{ fontSize: 22, fontWeight: 900, color: c.label }}>{q}x</div>
+                  <div style={{ fontSize: 11, color: c.label, fontWeight: 700 }}>R${n}</div>
                 </div>
               )
             })}
-            {Object.values(notes).every(q => q === 0) && <div style={{ fontSize: 13, color: '#ffffff40' }}>Nenhuma nota necessária</div>}
+            {Object.values(notes).every(q => q === 0) && (
+              <div style={{ fontSize: 13, color: '#ffffff40' }}>Nenhuma nota</div>
+            )}
           </div>
         </div>
       </div>
 
-      {/* Botões de impressão */}
       {pagos.length > 0 && (
         <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
-          <button onClick={() => imprimirRecibos(extras, pessoas, setores, config, 'dinheiro')}
-            style={{ ...S.btn(C.success), flex: 1, fontSize: 13 }}>🖨️ Imprimir Dinheiro</button>
-          <button onClick={() => imprimirRecibos(extras, pessoas, setores, config, 'pix')}
-            style={{ ...S.btn(C.secondary), flex: 1, fontSize: 13 }}>🖨️ Imprimir Pix</button>
+          <button onClick={() => imprimirRecibos(extras, pessoas, setores, config, 'dinheiro')} style={{ ...S.btn(C.success), flex: 1, fontSize: 13 }}>Imprimir Dinheiro</button>
+          <button onClick={() => imprimirRecibos(extras, pessoas, setores, config, 'pix')} style={{ ...S.btn(C.secondary), flex: 1, fontSize: 13 }}>Imprimir Pix</button>
         </div>
       )}
 
-      {/* ── PENDENTES agrupados por setor ── */}
       {pendentes.length === 0 && (
         <div style={{ ...S.card, textAlign: 'center', padding: 32 }}>
           <div style={{ fontSize: 36 }}>✅</div>
@@ -887,9 +880,7 @@ function TabPagamentos({ store, today, setModal }) {
 
       {pendentesPorSetor.map(grupo => (
         <div key={grupo.setor.id} style={{ marginBottom: 8 }}>
-          {/* Cabeçalho do setor — clicável */}
-          <div onClick={() => toggleSetor(grupo.setor.id)}
-            style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 16px', background: C.bgCard2, borderRadius: setoresAbertos[grupo.setor.id] ? '14px 14px 0 0' : 14, border: `1px solid ${C.border}`, cursor: 'pointer', userSelect: 'none' }}>
+          <div onClick={() => toggleSetor(grupo.setor.id)} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 16px', background: C.bgCard2, borderRadius: 14, border: '1px solid ' + C.border, cursor: 'pointer' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
               <div style={{ width: 10, height: 10, borderRadius: 5, background: C.primary }} />
               <span style={{ fontSize: 15, fontWeight: 800, color: C.text }}>{grupo.setor.nome}</span>
@@ -897,74 +888,66 @@ function TabPagamentos({ store, today, setModal }) {
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
               <span style={{ fontSize: 14, fontWeight: 800, color: C.primary }}>{fmt(grupo.extras.reduce((a, e) => a + e.valor_final, 0))}</span>
-              <span style={{ fontSize: 18, color: C.textMuted, transform: setoresAbertos[grupo.setor.id] ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s' }}>⌄</span>
+              <span style={{ fontSize: 18, color: C.textMuted }}>v</span>
             </div>
           </div>
 
-          {/* Extras do setor */}
           {setoresAbertos[grupo.setor.id] && (
-            <div style={{ border: `1px solid ${C.border}`, borderTop: 'none', borderRadius: '0 0 14px 14px', overflow: 'hidden' }}>
+            <div style={{ border: '1px solid ' + C.border, borderTop: 'none', borderRadius: '0 0 14px 14px', overflow: 'hidden' }}>
               {grupo.extras.map((e, idx) => {
                 const pessoa = pessoas.find(p => p.id === e.pessoa_id)
-                const trocosTotal = totalTrocos(pessoa?.trocos)
+                const trocosTotal = totalTrocos(pessoa ? pessoa.trocos : null)
                 const descontoAplicado = e.desconto_troco || 0
                 const isLast = idx === grupo.extras.length - 1
                 return (
-                  <div key={e.id} style={{ background: C.bgCard, padding: '14px 16px', borderBottom: isLast ? 'none' : `1px solid ${C.border}` }}>
+                  <div key={e.id} style={{ background: C.bgCard, padding: '14px 16px', borderBottom: isLast ? 'none' : '1px solid ' + C.border }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 10 }}>
                       <div>
                         <div style={{ fontWeight: 800, fontSize: 16, color: C.text }}>{e.nome}</div>
-                        <div style={{ fontSize: 13, color: '#aaaacc', marginTop: 2 }}>
-                          {e.funcao}{e.turnos ? ' · ' + e.turnos : ''}
-                        </div>
-                        {descontoAplicado > 0 && <div style={{ fontSize: 12, color: C.success, marginTop: 2, fontWeight: 700 }}>✓ −{fmt(descontoAplicado)} descontado</div>}
-                        {e.obs ? <div style={{ fontSize: 12, color: '#aaaacc', fontStyle: 'italic', marginTop: 3 }}>📝 {e.obs}</div> : null}
+                        <div style={{ fontSize: 13, color: C.textMuted, marginTop: 2 }}>{e.funcao}{e.turnos ? ' · ' + e.turnos : ''}</div>
+                        {descontoAplicado > 0 && <div style={{ fontSize: 12, color: C.success, marginTop: 2, fontWeight: 700 }}>desconto: -{fmt(descontoAplicado)}</div>}
+                        {e.obs ? <div style={{ fontSize: 12, color: C.textMuted, fontStyle: 'italic', marginTop: 3 }}>{e.obs}</div> : null}
                       </div>
                       <div style={{ textAlign: 'right' }}>
                         <div style={{ fontSize: 22, fontWeight: 900, color: C.primary }}>{fmt(e.valor_final)}</div>
                       </div>
                     </div>
 
-                    {/* Troco pendente */}
                     {trocosTotal > 0 && (
                       <div style={{ background: '#2a0d0d', border: '1px solid #ef444444', borderRadius: 10, padding: '8px 12px', marginBottom: 10 }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                           <div>
-                            <div style={{ fontSize: 12, color: '#ef4444', fontWeight: 700 }}>🔴 Troco a descontar</div>
-                            {(pessoa?.trocos || []).map((t, i) => (
-                              <div key={i} style={{ fontSize: 11, color: '#ff6b6b', marginTop: 2 }}>• {dayLabel(t.data)}: {fmt(t.valor)}</div>
+                            <div style={{ fontSize: 12, color: '#ef4444', fontWeight: 700 }}>Troco a descontar</div>
+                            {(pessoa && pessoa.trocos ? pessoa.trocos : []).map((t, i) => (
+                              <div key={i} style={{ fontSize: 11, color: '#ff6b6b', marginTop: 2 }}>{dayLabel(t.data)}: {fmt(t.valor)}</div>
                             ))}
                           </div>
                           <div style={{ textAlign: 'right' }}>
                             <div style={{ fontSize: 14, fontWeight: 800, color: '#ef4444' }}>{fmt(trocosTotal)}</div>
-                            <button
-                              onClick={async () => {
-                                if (!confirm(`Aplicar desconto de ${fmt(trocosTotal)}?`)) return
-                                const novoValor = Math.max(0, e.valor_final - trocosTotal)
-                                await updateExtra(e.id, { valor_final: novoValor, desconto_troco: (e.desconto_troco || 0) + trocosTotal, trocos_descontados: pessoa?.trocos || [] })
-                                if (pessoa) await store.updatePessoa(pessoa.id, { trocos: [] })
-                              }}
-                              style={{ marginTop: 4, background: '#ef4444', color: '#fff', border: 'none', borderRadius: 8, padding: '4px 10px', fontSize: 11, fontWeight: 800, cursor: 'pointer' }}>
-                              Aplicar −{fmt(trocosTotal)}
+                            <button onClick={async () => {
+                              if (!confirm('Aplicar desconto de ' + fmt(trocosTotal) + '?')) return
+                              const novoValor = Math.max(0, e.valor_final - trocosTotal)
+                              await updateExtra(e.id, { valor_final: novoValor, desconto_troco: (e.desconto_troco || 0) + trocosTotal, trocos_descontados: pessoa ? pessoa.trocos : [] })
+                              if (pessoa) await store.updatePessoa(pessoa.id, { trocos: [] })
+                            }} style={{ marginTop: 4, background: '#ef4444', color: '#fff', border: 'none', borderRadius: 8, padding: '4px 10px', fontSize: 11, fontWeight: 800, cursor: 'pointer' }}>
+                              Aplicar -{fmt(trocosTotal)}
                             </button>
                           </div>
                         </div>
                       </div>
                     )}
 
-                    {/* Forma de pagamento */}
                     <div style={{ display: 'flex', gap: 6, marginBottom: 10 }}>
-                      {[['indefinido', '❓', '#666666'], ['dinheiro', '💵 Dinheiro', '#10b981'], ['pix', '📱 Pix', '#00c2cb']].map(([v, label, color]) => (
+                      {[['indefinido', 'Indefinido', '#666666'], ['dinheiro', 'Dinheiro', '#10b981'], ['pix', 'Pix', '#00c2cb']].map(([v, label, color]) => (
                         <button key={v} onClick={() => updateExtra(e.id, { previsao: v })}
-                          style={{ flex: 1, padding: '8px 4px', border: `2px solid ${e.previsao === v ? color : C.border}`, borderRadius: 10, background: e.previsao === v ? color + '25' : C.bgCard2, cursor: 'pointer', fontSize: 12, color: e.previsao === v ? color : C.textMuted, fontWeight: e.previsao === v ? 800 : 400 }}>
+                          style={{ flex: 1, padding: '8px 4px', border: '2px solid ' + (e.previsao === v ? color : C.border), borderRadius: 10, background: e.previsao === v ? color + '25' : C.bgCard2, cursor: 'pointer', fontSize: 12, color: e.previsao === v ? color : C.textMuted, fontWeight: e.previsao === v ? 800 : 400 }}>
                           {label}
                         </button>
                       ))}
                     </div>
 
-                    <button onClick={() => setModal({ type: 'pagar', extra: e })}
-                      style={{ ...S.btn(C.primary), width: '100%', fontSize: 15 }}>
-                      💰 Pagar {fmt(e.valor_final)}
+                    <button onClick={() => setModal({ type: 'pagar', extra: e })} style={{ ...S.btn(C.primary), width: '100%', fontSize: 15 }}>
+                      Pagar {fmt(e.valor_final)}
                     </button>
                   </div>
                 )
@@ -974,12 +957,11 @@ function TabPagamentos({ store, today, setModal }) {
         </div>
       ))}
 
-      {/* ── PAGOS — compactos, embaixo ── */}
       {pagos.length > 0 && (
         <div style={{ marginTop: 16 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
             <div style={{ flex: 1, height: 1, background: C.success + '44' }} />
-            <span style={{ fontSize: 11, color: C.success, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.1em' }}>✓ Pagos ({pagos.length})</span>
+            <span style={{ fontSize: 11, color: C.success, fontWeight: 800, textTransform: 'uppercase' }}>Pagos ({pagos.length})</span>
             <div style={{ flex: 1, height: 1, background: C.success + '44' }} />
           </div>
           {pagos.map(e => (
@@ -988,17 +970,16 @@ function TabPagamentos({ store, today, setModal }) {
                 <div>
                   <div style={{ fontWeight: 700, fontSize: 14, color: '#d1fae5' }}>{e.nome}</div>
                   <div style={{ fontSize: 12, color: '#6ee7b7' }}>
-                    {e.forma_pagamento === 'pix' ? '📱 Pix' : '💵 Dinheiro'}
-                    {(e.trocos_descontados || []).length > 0 && <span style={{ color: C.success }}> · −{fmt(e.trocos_descontados.reduce((a, t) => a + t.valor, 0))} troco</span>}
-                    {e.editado && <span style={{ color: C.gold }}> · ✏️ editado</span>}
+                    {e.forma_pagamento === 'pix' ? 'Pix' : 'Dinheiro'}
+                    {(e.trocos_descontados || []).length > 0 && <span style={{ color: C.success }}> - {fmt(e.trocos_descontados.reduce((a, t) => a + t.valor, 0))} troco</span>}
+                    {e.editado && <span style={{ color: C.gold }}> - editado</span>}
                   </div>
-                  {e.obs && <div style={{ fontSize: 11, color: '#6ee7b7aa', fontStyle: 'italic', marginTop: 2 }}>"{e.obs}"</div>}
+                  {e.obs && <div style={{ fontSize: 11, color: '#6ee7b7aa', fontStyle: 'italic', marginTop: 2 }}>{e.obs}</div>}
                 </div>
                 <div style={{ textAlign: 'right' }}>
                   <div style={{ fontSize: 16, fontWeight: 800, color: '#34d399' }}>{fmt(e.valor_final)}</div>
-                  <button onClick={() => setModal({ type: 'editarPagamento', extra: e })}
-                    style={{ background: 'none', border: `1px solid ${C.gold}55`, borderRadius: 8, color: C.gold, fontSize: 11, padding: '3px 8px', cursor: 'pointer', marginTop: 4, fontWeight: 700 }}>
-                    ✏️ Editar
+                  <button onClick={() => setModal({ type: 'editarPagamento', extra: e })} style={{ background: 'none', border: '1px solid ' + C.gold + '55', borderRadius: 8, color: C.gold, fontSize: 11, padding: '3px 8px', cursor: 'pointer', marginTop: 4, fontWeight: 700 }}>
+                    Editar
                   </button>
                 </div>
               </div>
@@ -1006,10 +987,10 @@ function TabPagamentos({ store, today, setModal }) {
           ))}
         </div>
       )}
-      </div>
     </div>
     </div>
-  </div>
+    </div>
+    </div>
   )
 }
 
