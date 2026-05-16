@@ -164,7 +164,7 @@ export function imprimirRecibos(extras, vales, despesas, pessoas, setores, confi
   // Filtra por forma de pagamento
   const extrasFiltrados   = (extras   || []).filter(e => e.pago && e.forma_pagamento === forma)
   const valesFiltrados    = (vales    || []).filter(v => v.forma_pagamento === forma)
-  const despesasFiltradas = (despesas || []).filter(d => d.forma_pagamento === forma)
+  const despesasFiltradas = (despesas || []).filter(d => (d.forma_pagamento || 'dinheiro') === forma)
 
   if (extrasFiltrados.length === 0 && valesFiltrados.length === 0 && despesasFiltradas.length === 0) {
     alert(`Nenhum lançamento em ${formaLabel} encontrado.`)
