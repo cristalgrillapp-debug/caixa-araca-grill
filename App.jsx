@@ -1082,9 +1082,18 @@ function TabPagamentos({ store, today, setModal }) {
                 </div>
                 <div style={{ textAlign: 'right' }}>
                   <div style={{ fontSize: 16, fontWeight: 800, color: '#34d399' }}>{fmt(e.valor_final)}</div>
-                  <button onClick={() => setModal({ type: 'editarPagamento', extra: e })} style={{ background: 'none', border: '1px solid ' + C.gold + '55', borderRadius: 8, color: C.gold, fontSize: 11, padding: '3px 8px', cursor: 'pointer', marginTop: 4, fontWeight: 700 }}>
-                    Editar
-                  </button>
+                  <div style={{ display: 'flex', gap: 4, marginTop: 4, justifyContent: 'flex-end' }}>
+                    <button onClick={() => setModal({ type: 'editarPagamento', extra: e })} style={{ background: 'none', border: '1px solid ' + C.gold + '55', borderRadius: 8, color: C.gold, fontSize: 11, padding: '3px 8px', cursor: 'pointer', fontWeight: 700 }}>
+                      Editar
+                    </button>
+                    {(store.usuario?.role === 'admin' || store.usuario?.role === 'gerente') && (
+                      <button onClick={() => { if (confirm('Desfazer pagamento de ' + e.nome + '? Ele voltará para Pendente.')) {
+                        updateExtra(e.id, { pago: false, forma_pagamento: null, assinatura: null, valor_final: e.valor_original || e.valor_extra || e.valor_final, valor_pago: 0, desconto_troco: 0, trocos_descontados: [], troco_gerado: 0, previsao: 'indefinido' })
+                      }}} style={{ background: 'none', border: '1px solid #f59e0b55', borderRadius: 8, color: '#f59e0b', fontSize: 11, padding: '3px 8px', cursor: 'pointer', fontWeight: 700 }}>
+                        ↩ Desfazer
+                      </button>
+                    )}
+                  </div>
                 </div>
               </div>
             </div>
@@ -3322,7 +3331,7 @@ function exportarRelatorioDiaPDF(extrasDia, valesDia, pessoas, setores, config, 
 // ─── ABA VALES ────────────────────────────────────────────────────────────────
 
 function TabVales({ store, today, setModal }) {
-  const { vales, extras, pessoas, setores, updateVale, removeVale, config } = store
+  const { vales, despesas, extras, pessoas, setores, updateVale, removeVale, updateDespesa, removeDespesa, config } = store
   const [subTela, setSubTela] = useState('lista')
   const [filtro, setFiltro] = useState('hoje')
   const [dataInicio, setDataInicio] = useState(today)
@@ -3439,42 +3448,106 @@ function TabVales({ store, today, setModal }) {
 
       {/* ─── LISTA ─── */}
       {subTela === 'lista' && <>
-        <div style={{ ...S.card, background: 'linear-gradient(135deg,#1a1200,#2d2000)', color: '#fff' }}>
-          <div style={{ fontSize: 11, color: '#c9a96e', textTransform: 'uppercase' }}>Total de Vales</div>
-          <div style={{ fontSize: 28, fontWeight: 700, color: '#c9a96e' }}>{fmt(totalVales)}</div>
-          <div style={{ display: 'flex', gap: 16, marginTop: 6 }}>
-            <div style={{ fontSize: 12, color: '#ffffff80' }}>💵 {fmt(totalDinLista)}</div>
-            <div style={{ fontSize: 12, color: '#ffffff80' }}>📱 {fmt(totalPixLista)}</div>
-            <div style={{ fontSize: 12, color: '#ffffff50' }}>{valesFiltrados.length} vale{valesFiltrados.length !== 1 ? 's' : ''}</div>
-          </div>
-        </div>
+        {(() => {
+          const despesasFiltradas = (despesas||[]).filter(d => d.data_op >= from && d.data_op <= to)
+            .sort((a,b) => b.data_op.localeCompare(a.data_op))
+          const totalDespesas = despesasFiltradas.reduce((a,d) => a+d.valor, 0)
+          const totalGeral = totalVales + totalDespesas
+          return (<>
+            <div style={{ ...S.card, background: 'linear-gradient(135deg,#1a1200,#2d2000)', color: '#fff' }}>
+              <div style={{ fontSize: 11, color: '#c9a96e', textTransform: 'uppercase' }}>Total Saídas</div>
+              <div style={{ fontSize: 28, fontWeight: 700, color: '#c9a96e' }}>{fmt(totalGeral)}</div>
+              <div style={{ display: 'flex', gap: 16, marginTop: 6 }}>
+                <div style={{ fontSize: 12, color: '#ffffff80' }}>💸 Vales: {fmt(totalVales)}</div>
+                <div style={{ fontSize: 12, color: '#ffffff80' }}>🧾 Despesas: {fmt(totalDespesas)}</div>
+              </div>
+            </div>
 
-        <div style={{ display: 'flex', gap: 4, marginBottom: 10, flexWrap: 'wrap' }}>
-          {[['hoje','Hoje'],['ontem','Ontem'],['semana','7 dias'],['mes','Mês'],['livre','Livre']].map(([id, label]) => (
-            <button key={id} onClick={() => setFiltro(id)}
-              style={{ padding: '6px 12px', border: `2px solid ${filtro === id ? C.gold : C.border}`, borderRadius: 20, background: filtro === id ? C.gold : C.bgCard, color: filtro === id ? '#fff' : C.textMuted, fontSize: 12, fontWeight: filtro === id ? 700 : 400, cursor: 'pointer' }}>
-              {label}
-            </button>
-          ))}
-        </div>
+            <div style={{ display: 'flex', gap: 4, marginBottom: 10, flexWrap: 'wrap' }}>
+              {[['hoje','Hoje'],['ontem','Ontem'],['semana','7 dias'],['mes','Mês'],['livre','Livre']].map(([id, label]) => (
+                <button key={id} onClick={() => setFiltro(id)}
+                  style={{ padding: '6px 12px', border: `2px solid ${filtro === id ? C.gold : C.border}`, borderRadius: 20, background: filtro === id ? C.gold : C.bgCard, color: filtro === id ? '#fff' : C.textMuted, fontSize: 12, fontWeight: filtro === id ? 700 : 400, cursor: 'pointer' }}>
+                  {label}
+                </button>
+              ))}
+            </div>
 
-        {filtro === 'livre' && (
-          <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
-            <div style={{ flex: 1 }}><label style={S.label}>De</label><input type="date" value={dataInicio} onChange={e => setDataInicio(e.target.value)} style={S.input} /></div>
-            <div style={{ flex: 1 }}><label style={S.label}>Até</label><input type="date" value={dataFim} onChange={e => setDataFim(e.target.value)} style={S.input} /></div>
-          </div>
-        )}
+            {filtro === 'livre' && (
+              <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
+                <div style={{ flex: 1 }}><label style={S.label}>De</label><input type="date" value={dataInicio} onChange={e => setDataInicio(e.target.value)} style={S.input} /></div>
+                <div style={{ flex: 1 }}><label style={S.label}>Até</label><input type="date" value={dataFim} onChange={e => setDataFim(e.target.value)} style={S.input} /></div>
+              </div>
+            )}
 
-        <div style={{ ...S.card, background: '#f5f0e8', marginBottom: 12 }}>
-          <div style={{ fontSize: 13, color: '#8a7355' }}>Copie e cole no sistema interno. Valor lançado manualmente.</div>
-        </div>
+            {/* Vales */}
+            {valesFiltrados.length > 0 && <>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+                <div style={{ flex: 1, height: 1, background: C.gold + '44' }} />
+                <span style={{ fontSize: 11, color: C.gold, fontWeight: 800, textTransform: 'uppercase' }}>Vales ({valesFiltrados.length})</span>
+                <div style={{ flex: 1, height: 1, background: C.gold + '44' }} />
+              </div>
+              {valesFiltrados.map(v => <CardVale key={v.id} v={v} />)}
+            </>}
 
-        {valesFiltrados.length === 0 && (
-          <div style={{ ...S.card, textAlign: 'center', padding: 32, color: '#999' }}>
-            <div style={{ fontSize: 40 }}>💸</div><div>Nenhum vale no período</div>
-          </div>
-        )}
-        {valesFiltrados.map(v => <CardVale key={v.id} v={v} />)}
+            {/* Despesas */}
+            {despesasFiltradas.length > 0 && <>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8, marginTop: valesFiltrados.length > 0 ? 8 : 0 }}>
+                <div style={{ flex: 1, height: 1, background: C.accent + '44' }} />
+                <span style={{ fontSize: 11, color: C.accent, fontWeight: 800, textTransform: 'uppercase' }}>Lançamentos ({despesasFiltradas.length})</span>
+                <div style={{ flex: 1, height: 1, background: C.accent + '44' }} />
+              </div>
+              {despesasFiltradas.map(d => {
+                const setor = setores.find(s => s.id === d.setor_id)
+                return (
+                  <div key={d.id} style={{ ...S.card, borderColor: C.accent + '44' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                      <div style={{ flex: 1 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 2 }}>
+                          <span style={{ fontSize: 16 }}>{d.categoria_emoji}</span>
+                          <span style={{ fontSize: 11, color: C.accent, fontWeight: 700 }}>{d.categoria_nome}</span>
+                          <span style={{ fontSize: 11, color: C.textMuted }}>· {dayLabel(d.data_op)}</span>
+                        </div>
+                        <div style={{ fontSize: 14, fontWeight: 700, color: C.text }}>{d.descricao}</div>
+                        {setor && <div style={{ fontSize: 12, color: C.textMuted }}>{setor.nome}</div>}
+                        {!d.foto && d.obs && <div style={{ fontSize: 11, color: C.gold, marginTop: 2, fontStyle: 'italic' }}>⚠ {d.obs}</div>}
+                        {d.foto && d.obs && <div style={{ fontSize: 11, color: '#aaa', marginTop: 2 }}>{d.obs}</div>}
+                        <div style={{ marginTop: 6 }}>
+                          <Badge color={d.forma_pagamento === 'pix' ? C.secondary : C.success}>
+                            {d.forma_pagamento === 'pix' ? '📱 Pix' : '💵 Dinheiro'}
+                          </Badge>
+                        </div>
+                      </div>
+                      <div style={{ textAlign: 'right', flexShrink: 0 }}>
+                        <div style={{ fontSize: 20, fontWeight: 700, color: C.accent }}>{fmt(d.valor)}</div>
+                        {d.lancado ? <Badge color={C.success}>✓ Lançado</Badge> : <Badge color="#f59e0b">Não lançado</Badge>}
+                      </div>
+                    </div>
+                    {d.foto && (
+                      <img src={d.foto} alt="Nota" onClick={() => window.open(d.foto,'_blank')}
+                        style={{ maxHeight: 60, marginTop: 8, border: `1px solid ${C.border}`, borderRadius: 6, cursor: 'pointer' }} />
+                    )}
+                    <div style={{ display: 'flex', gap: 6, marginTop: 10 }}>
+                      <button onClick={() => updateDespesa(d.id, { lancado: !d.lancado })}
+                        style={{ ...S.btn(d.lancado ? '#22c55e' : '#e0d5c5'), flex: 'none', padding: '8px 14px', color: d.lancado ? '#fff' : '#666' }}>
+                        {d.lancado ? '✓' : '○'}
+                      </button>
+                      <button onClick={() => { if (confirm('Excluir lançamento "' + d.descricao + '"?')) removeDespesa(d.id) }}
+                        style={{ background: 'none', border: `1px solid ${C.border}`, borderRadius: 12, padding: '8px 14px', fontSize: 13, color: '#ef4444', cursor: 'pointer' }}>
+                        🗑
+                      </button>
+                    </div>
+                  </div>
+                )
+              })}
+            </>}
+
+            {valesFiltrados.length === 0 && despesasFiltradas.length === 0 && (
+              <div style={{ ...S.card, textAlign: 'center', padding: 32, color: '#999' }}>
+                <div style={{ fontSize: 40 }}>💸</div><div>Nenhuma saída no período</div>
+              </div>
+            )}
+          </>)
+        })()}
       </>}
 
       {/* ─── PESQUISA ─── */}
