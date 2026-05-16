@@ -1488,6 +1488,109 @@ function TabLancamentos({ store, today }) {
 
 // ─── EXPORTAR RELATÓRIO ───────────────────────────────────────────────────────
 
+// ─── RELATÓRIO COMPLETO DE SAÍDAS (PDF) ──────────────────────────────────────
+
+function exportarRelatorioCompleto(extras, vales, despesas, pessoas, setores, config, from, to) {
+  const DIAS2 = ['Dom','Seg','Ter','Qua','Qui','Sex','Sáb']
+  const dl = (d) => { if (!d) return ''; const [y,m,dd] = d.split('-'); const dt = new Date(Number(y),Number(m)-1,Number(dd)); return DIAS2[dt.getDay()]+' '+String(dt.getDate()).padStart(2,'0')+'/'+String(dt.getMonth()+1).padStart(2,'0') }
+  const fmt2 = (c) => new Intl.NumberFormat('pt-BR',{style:'currency',currency:'BRL'}).format((c||0)/100)
+  const nomeEstab = config?.nome_estabelecimento || 'ARACÁ GRILL'
+  const periodo = from === to ? dl(from) : `${dl(from)} a ${dl(to)}`
+
+  const totalExtras   = extras.reduce((a,e) => a+(e.valor_final||0), 0)
+  const totalValesV   = (vales||[]).reduce((a,v) => a+(v.valor||0), 0)
+  const totalDespV    = (despesas||[]).reduce((a,d) => a+(d.valor||0), 0)
+  const totalGeral    = totalExtras + totalValesV + totalDespV
+  const totalDin      = extras.filter(e=>e.forma_pagamento==='dinheiro').reduce((a,e)=>a+e.valor_final,0)
+                      + (vales||[]).filter(v=>v.forma_pagamento==='dinheiro').reduce((a,v)=>a+v.valor,0)
+                      + (despesas||[]).filter(d=>(d.forma_pagamento||'dinheiro')==='dinheiro').reduce((a,d)=>a+d.valor,0)
+  const totalPix      = totalGeral - totalDin
+
+  // Por setor (extras)
+  const porSetor = {}
+  extras.forEach(e => { const s=setores.find(x=>x.id===e.setor_id); const n=s?.nome||'Sem setor'; if(!porSetor[n])porSetor[n]={total:0,qtd:0}; porSetor[n].total+=e.valor_final; porSetor[n].qtd++ })
+
+  // Por categoria (despesas)
+  const porCat = {}
+  ;(despesas||[]).forEach(d => { const k=`${d.categoria_emoji||''} ${d.categoria_nome||'Outros'}`; if(!porCat[k])porCat[k]={total:0,qtd:0}; porCat[k].total+=d.valor; porCat[k].qtd++ })
+
+  const linhasExtras = extras.sort((a,b)=>b.data_op.localeCompare(a.data_op)).map(e => {
+    const s=setores.find(x=>x.id===e.setor_id)
+    return `<tr><td>${dl(e.data_op)}</td><td><strong>${e.nome}</strong><br><small>${e.funcao||''} ${e.turnos||''}</small></td><td>${s?.nome||'—'}</td><td class="${e.forma_pagamento==='pix'?'pix':'din'}">${fmt2(e.valor_final)}</td><td>${e.forma_pagamento==='pix'?'Pix':'Din'}</td></tr>`
+  }).join('')
+
+  const linhasVales = (vales||[]).sort((a,b)=>b.data_op.localeCompare(a.data_op)).map(v => {
+    return `<tr class="vrow"><td>${dl(v.data_op)}</td><td><strong>${v.nome}</strong><br><small>${v.funcao||''}</small></td><td>—</td><td class="val">${fmt2(v.valor)}</td><td>${v.forma_pagamento==='pix'?'Pix':'Din'}</td></tr>`
+  }).join('')
+
+  const linhasDespesas = (despesas||[]).sort((a,b)=>b.data_op.localeCompare(a.data_op)).map(d => {
+    const s=setores.find(x=>x.id===d.setor_id)
+    return `<tr class="drow"><td>${dl(d.data_op)}</td><td><strong>${d.descricao}</strong><br><small>${d.categoria_emoji||''} ${d.categoria_nome||''}</small></td><td>${s?.nome||'—'}</td><td class="desp">${fmt2(d.valor)}</td><td>${(d.forma_pagamento||'dinheiro')==='pix'?'Pix':'Din'}</td></tr>`
+  }).join('')
+
+  const linhasSetor = Object.entries(porSetor).sort((a,b)=>b[1].total-a[1].total).map(([n,d])=>`<tr><td>${n}</td><td>${d.qtd}</td><td>${fmt2(d.total)}</td></tr>`).join('')
+  const linhasCat   = Object.entries(porCat).sort((a,b)=>b[1].total-a[1].total).map(([n,d])=>`<tr><td>${n}</td><td>${d.qtd}</td><td>${fmt2(d.total)}</td></tr>`).join('')
+
+  const html = `<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8">
+  <title>${nomeEstab} — Saídas ${periodo}</title>
+  <style>
+    *{margin:0;padding:0;box-sizing:border-box}
+    body{font-family:'Helvetica Neue',Arial,sans-serif;font-size:11px;color:#18181b;padding:16px}
+    .header{display:flex;justify-content:space-between;margin-bottom:14px;padding-bottom:10px;border-bottom:3px solid #b5763a}
+    .logo{font-size:20px;font-weight:900;color:#b5763a}.sub{font-size:12px;color:#6b6360;margin-top:3px}
+    .meta{text-align:right;font-size:10px;color:#6b6360;line-height:1.7}
+    .cards{display:grid;grid-template-columns:repeat(6,1fr);gap:6px;margin-bottom:12px}
+    .card{background:#f7f6f3;border-radius:8px;padding:8px;text-align:center;border:1px solid #e4ddd4}
+    .cl{font-size:9px;font-weight:700;color:#6b6360;text-transform:uppercase;margin-bottom:2px}
+    .cv{font-size:14px;font-weight:900}
+    .card.tot{background:#1c1917}.card.tot .cl{color:#ffffff60}.card.tot .cv{color:#c9a96e}
+    .card.ext .cv{color:#b5763a}.card.val .cv{color:#9a7520}.card.des .cv{color:#5c4d8a}
+    .card.din .cv{color:#2e6b47}.card.pix .cv{color:#3d6b8a}
+    .grid2{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px}
+    h2{font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.06em;margin:12px 0 6px;padding-bottom:3px;border-bottom:2px solid #e4ddd4}
+    h2.hex{border-color:#b5763a;color:#b5763a}h2.hval{border-color:#9a7520;color:#9a7520}h2.hdes{border-color:#5c4d8a;color:#5c4d8a}h2.hsum{border-color:#444;color:#444}
+    table{width:100%;border-collapse:collapse;margin-bottom:6px;font-size:10px}
+    th{background:#1c1917;color:#fff;font-size:9px;font-weight:700;text-transform:uppercase;padding:5px 8px;text-align:left}
+    td{padding:4px 8px;border-bottom:1px solid #f0ede8;vertical-align:top}
+    tr:nth-child(even) td{background:#fafaf9}
+    .vrow td{background:#fffbeb!important}.drow td{background:#f5f0ff!important}
+    small{font-size:9px;color:#6b6360}.pix{color:#3d6b8a;font-weight:700}.din{color:#2e6b47;font-weight:700}
+    .val{color:#9a7520;font-weight:700}.desp{color:#5c4d8a;font-weight:700}
+    .rodape{background:#1c1917;border-radius:8px;padding:10px 14px;display:flex;justify-content:space-between;align-items:center;margin-top:10px}
+    .footer{margin-top:10px;padding-top:8px;border-top:1px solid #e4ddd4;font-size:9px;color:#a8a09a;text-align:center}
+    @media print{body{padding:6px}@page{margin:8mm;size:A4}}
+  </style></head><body>
+  <div class="header">
+    <div><div class="logo">🔥 ${nomeEstab}</div><div class="sub">Relatório Completo de Saídas · ${periodo}</div></div>
+    <div class="meta">Gerado em: ${new Date().toLocaleString('pt-BR')}<br>${extras.length} extras · ${(vales||[]).length} vales · ${(despesas||[]).length} despesas</div>
+  </div>
+  <div class="cards">
+    <div class="card tot"><div class="cl">Total</div><div class="cv">${fmt2(totalGeral)}</div></div>
+    <div class="card ext"><div class="cl">💼 Extras</div><div class="cv">${fmt2(totalExtras)}</div></div>
+    <div class="card val"><div class="cl">💸 Vales</div><div class="cv">${fmt2(totalValesV)}</div></div>
+    <div class="card des"><div class="cl">🧾 Despesas</div><div class="cv">${fmt2(totalDespV)}</div></div>
+    <div class="card din"><div class="cl">💵 Dinheiro</div><div class="cv">${fmt2(totalDin)}</div></div>
+    <div class="card pix"><div class="cl">📱 Pix</div><div class="cv">${fmt2(totalPix)}</div></div>
+  </div>
+  <div class="grid2">
+    ${Object.keys(porSetor).length>0?`<div><h2 class="hsum">Extras por Setor</h2><table><thead><tr><th>Setor</th><th>Qtd</th><th>Total</th></tr></thead><tbody>${linhasSetor}</tbody></table></div>`:'<div></div>'}
+    ${Object.keys(porCat).length>0?`<div><h2 class="hsum">Despesas por Categoria</h2><table><thead><tr><th>Categoria</th><th>Qtd</th><th>Total</th></tr></thead><tbody>${linhasCat}</tbody></table></div>`:'<div></div>'}
+  </div>
+  ${extras.length>0?`<h2 class="hex">💼 Extras (${extras.length})</h2><table><thead><tr><th>Data</th><th>Profissional</th><th>Setor</th><th>Valor</th><th>Forma</th></tr></thead><tbody>${linhasExtras}</tbody></table>`:''}
+  ${(vales||[]).length>0?`<h2 class="hval">💸 Vales (${(vales||[]).length})</h2><table><thead><tr><th>Data</th><th>Funcionário</th><th>Setor</th><th>Valor</th><th>Forma</th></tr></thead><tbody>${linhasVales}</tbody></table>`:''}
+  ${(despesas||[]).length>0?`<h2 class="hdes">🧾 Despesas (${(despesas||[]).length})</h2><table><thead><tr><th>Data</th><th>Descrição</th><th>Setor</th><th>Valor</th><th>Forma</th></tr></thead><tbody>${linhasDespesas}</tbody></table>`:''}
+  <div class="rodape">
+    <div style="font-size:11px;font-weight:700;color:#ffffff80">TOTAL SAÍDAS — ${periodo}</div>
+    <div style="font-size:20px;font-weight:900;color:#c9a96e">${fmt2(totalGeral)}</div>
+  </div>
+  <div class="footer">${nomeEstab} · Sistema Operacional · ${new Date().getFullYear()}</div>
+  <script>window.onload=()=>window.print()<\/script>
+  </body></html>`
+
+  const w = window.open('','_blank','width=1100,height=800')
+  w.document.write(html); w.document.close()
+}
+
 // ─── EXPORTAR EXCEL ──────────────────────────────────────────────────────────
 
 function exportarExcel(pagos, pessoas, setores, config, from, to) {
@@ -1593,33 +1696,32 @@ function exportarPDF(pagos, pessoas, setores, config, from, to) {
   <meta charset="UTF-8">
   <title>${nomeEstab} — Relatório ${periodo}</title>
   <style>
-    * { margin:0; padding:0; box-sizing:border-box; }
-    body { font-family: 'Helvetica Neue', Arial, sans-serif; font-size: 12px; color: #18181b; background: #fff; padding: 16px; }
-    .header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 16px; padding-bottom: 12px; border-bottom: 3px solid #b5763a; }
-    .logo { font-size: 28px; font-weight: 900; color: #b5763a; letter-spacing: -0.5px; }
-    .subtitle { font-size: 13px; color: #6b6360; margin-top: 4px; }
-    .meta { text-align: right; font-size: 11px; color: #6b6360; line-height: 1.6; }
-    .cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 16px; }
-    .card { background: #f7f6f3; border-radius: 12px; padding: 12px; border: 1px solid #e4ddd4; }
-    .card-label { font-size: 10px; font-weight: 700; color: #6b6360; text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 4px; }
-    .card-value { font-size: 20px; font-weight: 900; color: #b5763a; }
+    body { font-family: 'Helvetica Neue', Arial, sans-serif; font-size: 11px; color: #18181b; background: #fff; padding: 16px; }
+    .header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 14px; padding-bottom: 10px; border-bottom: 3px solid #b5763a; }
+    .logo { font-size: 24px; font-weight: 900; color: #b5763a; letter-spacing: -0.5px; }
+    .subtitle { font-size: 12px; color: #6b6360; margin-top: 4px; }
+    .meta { text-align: right; font-size: 10px; color: #6b6360; line-height: 1.6; }
+    .cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 14px; }
+    .card { background: #f7f6f3; border-radius: 10px; padding: 10px; border: 1px solid #e4ddd4; }
+    .card-label { font-size: 9px; font-weight: 700; color: #6b6360; text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 3px; }
+    .card-value { font-size: 18px; font-weight: 900; color: #b5763a; }
     .card.din .card-value { color: #2e6b47; }
     .card.pix .card-value { color: #3d6b8a; }
-    h2 { font-size: 13px; font-weight: 800; color: #18181b; text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 8px; margin-top: 14px; }
-    table { width: 100%; border-collapse: collapse; margin-bottom: 12px; }
-    th { background: #1c1917; color: #fff; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; padding: 7px 10px; text-align: left; }
-    td { padding: 6px 10px; border-bottom: 1px solid #f0ede8; font-size: 11px; vertical-align: top; }
+    h2 { font-size: 11px; font-weight: 800; color: #18181b; text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 6px; margin-top: 12px; }
+    table { width: 100%; border-collapse: collapse; margin-bottom: 10px; }
+    th { background: #1c1917; color: #fff; font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; padding: 6px 8px; text-align: left; }
+    td { padding: 5px 8px; border-bottom: 1px solid #f0ede8; font-size: 10px; vertical-align: top; }
     tr:nth-child(even) td { background: #fafaf9; }
-    .sub { font-size: 10px; color: #6b6360; }
+    .sub { font-size: 9px; color: #6b6360; }
     .pix { color: #3d6b8a; font-weight: 700; }
     .din { color: #2e6b47; font-weight: 700; }
-    .forma { font-size: 11px; }
-    .obs { font-style: italic; color: #6b6360; font-size: 10px; }
+    .forma { font-size: 10px; }
+    .obs { font-style: italic; color: #6b6360; font-size: 9px; }
     .setor-row td { font-weight: 600; }
-    .footer { margin-top: 20px; padding-top: 10px; border-top: 1px solid #e4ddd4; font-size: 10px; color: #a8a09a; text-align: center; }
+    .footer { margin-top: 16px; padding-top: 8px; border-top: 1px solid #e4ddd4; font-size: 9px; color: #a8a09a; text-align: center; }
     @media print {
-      body { padding: 8px; }
-      @page { margin: 10mm; size: A4 landscape; }
+      body { padding: 6px; }
+      @page { margin: 8mm; size: A4; }
     }
   </style>
   </head><body>
@@ -1871,12 +1973,11 @@ function PesquisaFuncionario({ store, extras, setores, from, to, config }) {
 
 
 function TabRelatorios({ store }) {
-  const { extras, pessoas, setores, config } = store
+  const { extras, vales, despesas, pessoas, setores, config } = store
   const [subTela, setSubTela] = useState('geral')
   const [pessoaSelecionada, setPessoaSelecionada] = useState(null)
   const today = todayOp(config)
 
-  // Datas para filtros
   const [filtro, setFiltro] = useState('semana')
   const [dataInicio, setDataInicio] = useState(today)
   const [dataFim, setDataFim] = useState(today)
@@ -1891,13 +1992,18 @@ function TabRelatorios({ store }) {
   const ranges = { hoje: [today, today], ontem: [ontem, ontem], semana: [weekStart, today], mes: [monthStart, today], livre: [dataInicio, dataFim] }
   const [from, to] = ranges[filtro] || [weekStart, today]
 
-  const pagos = useMemo(() => extras.filter(e => e.pago && e.data_op >= from && e.data_op <= to), [extras, from, to])
-  const pagosAntSem = useMemo(() => extras.filter(e => e.pago && e.data_op >= semAnteriorStart && e.data_op <= semAnteriorFim), [extras])
-  const pagosAntMes = useMemo(() => extras.filter(e => e.pago && e.data_op >= mesAnteriorStart && e.data_op < monthStart), [extras])
-  const pagosHoje = useMemo(() => extras.filter(e => e.pago && e.data_op === today), [extras, today])
+  const pagos        = useMemo(() => extras.filter(e => e.pago && e.data_op >= from && e.data_op <= to), [extras, from, to])
+  const valesPeriodo = useMemo(() => (vales||[]).filter(v => v.data_op >= from && v.data_op <= to), [vales, from, to])
+  const despPeriodo  = useMemo(() => (despesas||[]).filter(d => d.data_op >= from && d.data_op <= to), [despesas, from, to])
 
-  const totalCusto = useMemo(() => pagos.reduce((a, e) => a + e.valor_final, 0), [pagos])
-  const totalAntSem = useMemo(() => pagosAntSem.reduce((a, e) => a + e.valor_final, 0), [pagosAntSem])
+  const pagosAntSem = useMemo(() => extras.filter(e => e.pago && e.data_op >= semAnteriorStart && e.data_op <= semAnteriorFim), [extras])
+  const pagosHoje   = useMemo(() => extras.filter(e => e.pago && e.data_op === today), [extras, today])
+
+  const totalExtras   = useMemo(() => pagos.reduce((a,e) => a+e.valor_final, 0), [pagos])
+  const totalVales    = useMemo(() => valesPeriodo.reduce((a,v) => a+v.valor, 0), [valesPeriodo])
+  const totalDespesas = useMemo(() => despPeriodo.reduce((a,d) => a+d.valor, 0), [despPeriodo])
+  const totalCusto    = totalExtras + totalVales + totalDespesas
+  const totalAntSem   = useMemo(() => pagosAntSem.reduce((a,e) => a+e.valor_final, 0), [pagosAntSem])
 
   // Enriquece extras com dados da pessoa
   const extrasComPessoa = useMemo(() => pagos.map(e => {
@@ -1998,22 +2104,38 @@ function TabRelatorios({ store }) {
         <div style={{ fontSize: 11, color: '#c9a96e', textTransform: 'uppercase', letterSpacing: '0.1em' }}>Dashboard Operacional</div>
         <div style={{ fontSize: 11, color: '#ffffff50', marginTop: 2 }}>Inteligência de extras em tempo real</div>
       </div>
-      <div style={{ display: 'flex', gap: 6 }}>
+
+      {/* Filtro de período — sempre visível */}
+      <div style={{ display: 'flex', gap: 4, marginBottom: 8, flexWrap: 'wrap' }}>
+        {[['hoje','Hoje'],['ontem','Ontem'],['semana','7 dias'],['mes','Mês'],['livre','Livre']].map(([id, label]) => (
+          <button key={id} onClick={() => setFiltro(id)}
+            style={{ padding: '6px 12px', border: `2px solid ${filtro === id ? C.primary : C.border}`, borderRadius: 20, background: filtro === id ? C.primary : C.bgCard, color: filtro === id ? '#fff' : C.textMuted, fontSize: 12, fontWeight: filtro === id ? 700 : 400, cursor: 'pointer' }}>
+            {label}
+          </button>
+        ))}
+      </div>
+      {filtro === 'livre' && (
+        <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
+          <div style={{ flex: 1 }}><label style={S.label}>De</label><input type="date" value={dataInicio} onChange={e => setDataInicio(e.target.value)} style={S.input} /></div>
+          <div style={{ flex: 1 }}><label style={S.label}>Até</label><input type="date" value={dataFim} onChange={e => setDataFim(e.target.value)} style={S.input} /></div>
+        </div>
+      )}
+
+      {/* Botões exportação */}
+      <div style={{ display: 'flex', gap: 6, marginBottom: 12 }}>
         <button onClick={() => exportarExcel(pagos, pessoas, setores, config, from, to)}
           style={{ background: '#2e6b4733', border: '1px solid #2e6b4755', borderRadius: 8, color: '#6ee7b7', fontSize: 11, padding: '6px 10px', cursor: 'pointer', fontWeight: 700 }}>
           📊 Excel
         </button>
         <button onClick={() => exportarPDF(pagos, pessoas, setores, config, from, to)}
           style={{ background: '#a8322833', border: '1px solid #a8322855', borderRadius: 8, color: '#fca5a5', fontSize: 11, padding: '6px 10px', cursor: 'pointer', fontWeight: 700 }}>
-          📄 PDF
+          📄 PDF Extras
+        </button>
+        <button onClick={() => exportarRelatorioCompleto(pagos, valesPeriodo, despPeriodo, pessoas, setores, config, from, to)}
+          style={{ background: '#9a752033', border: '1px solid #9a752055', borderRadius: 8, color: '#c9a96e', fontSize: 11, padding: '6px 10px', cursor: 'pointer', fontWeight: 700 }}>
+          📤 Saídas
         </button>
       </div>
-      {filtro === 'livre' && (
-        <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
-          <div style={{ flex: 1 }}><label style={S.label}>De</label><input type="date" value={dataInicio} onChange={e => setDataInicio(e.target.value)} style={S.input} /></div>
-          <div style={{ flex: 1 }}><label style={S.label}>Até</label><input type="date" value={dataFim} onChange={e => setDataFim(e.target.value)} style={S.input} /></div>
-        </div>
-      )}
 
       {/* Sub-navegação */}
       <div style={{ display: 'flex', gap: 4, background: '#f0e8d8', padding: 4, borderRadius: 12, marginBottom: 14 }}>
