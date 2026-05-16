@@ -3108,13 +3108,96 @@ function SecaoUsuarios() {
   )
 }
 
+
+// ─── RELATÓRIO DE SAÍDAS DO DIA (PDF) ────────────────────────────────────────
+
+function exportarRelatorioDiaPDF(extrasDia, valesDia, pessoas, setores, config, data) {
+  const DIAS2 = ['Dom','Seg','Ter','Qua','Qui','Sex','Sáb']
+  const dl = (d) => { if (!d) return ''; const [y,m,dd] = d.split('-'); const dt = new Date(Number(y),Number(m)-1,Number(dd)); return DIAS2[dt.getDay()]+' '+String(dt.getDate()).padStart(2,'0')+'/'+String(dt.getMonth()+1).padStart(2,'0') }
+  const fmt2 = (c) => new Intl.NumberFormat('pt-BR',{style:'currency',currency:'BRL'}).format((c||0)/100)
+  const nomeEstab = config?.nome_estabelecimento || 'ARACÁ GRILL'
+  const dataLabel = dl(data)
+
+  const totalExtras = extrasDia.reduce((a,e) => a+(e.valor_final||0), 0)
+  const totalValesVal = valesDia.reduce((a,v) => a+(v.valor||0), 0)
+  const totalGeral = totalExtras + totalValesVal
+  const totalDin = [...extrasDia.filter(e=>e.forma_pagamento==='dinheiro').map(e=>e.valor_final||0), ...valesDia.filter(v=>v.forma_pagamento==='dinheiro').map(v=>v.valor||0)].reduce((a,x)=>a+x,0)
+  const totalPix = [...extrasDia.filter(e=>e.forma_pagamento==='pix').map(e=>e.valor_final||0), ...valesDia.filter(v=>v.forma_pagamento==='pix').map(v=>v.valor||0)].reduce((a,x)=>a+x,0)
+
+  const linhasExtras = extrasDia.map(e => {
+    const s = setores.find(x => x.id === e.setor_id)
+    return `<tr><td><strong>${e.nome}</strong><br><span class="sub">${e.funcao||''} ${e.turnos||''}</span></td><td>${s?.nome||'—'}</td><td class="${e.forma_pagamento==='pix'?'pix':'din'}">${fmt2(e.valor_final)}</td><td>${e.forma_pagamento==='pix'?'Pix':'Dinheiro'}</td></tr>`
+  }).join('')
+
+  const linhasVales = valesDia.map(v => {
+    const s = setores.find(x => x.id === v.setor_id)
+    return `<tr class="vale-row"><td><strong>${v.nome}</strong><br><span class="sub">${v.funcao||''}</span></td><td>${s?.nome||'—'}</td><td class="vale-val">${fmt2(v.valor)}</td><td>${v.forma_pagamento==='pix'?'Pix':'Dinheiro'}</td></tr>`
+  }).join('')
+
+  const html = `<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8">
+  <title>${nomeEstab} — Saídas ${dataLabel}</title>
+  <style>
+    *{margin:0;padding:0;box-sizing:border-box}
+    body{font-family:'Helvetica Neue',Arial,sans-serif;font-size:12px;color:#18181b;background:#fff;padding:20px}
+    .header{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:16px;padding-bottom:12px;border-bottom:3px solid #b5763a}
+    .logo{font-size:24px;font-weight:900;color:#b5763a}.subtitle{font-size:13px;color:#6b6360;margin-top:4px}
+    .meta{text-align:right;font-size:11px;color:#6b6360;line-height:1.6}
+    .cards{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:16px}
+    .card{background:#f7f6f3;border-radius:10px;padding:12px;border:1px solid #e4ddd4;text-align:center}
+    .card-label{font-size:10px;font-weight:700;color:#6b6360;text-transform:uppercase;margin-bottom:4px}
+    .card-value{font-size:18px;font-weight:900}
+    .card.total{background:#1c1917}.card.total .card-label{color:#ffffff80}.card.total .card-value{color:#c9a96e}
+    .card.ext .card-value{color:#b5763a}.card.val .card-value{color:#9a7520}.card.din .card-value{color:#2e6b47}
+    h2{font-size:13px;font-weight:800;text-transform:uppercase;letter-spacing:.06em;margin:14px 0 8px;padding-bottom:4px;border-bottom:2px solid #e4ddd4}
+    h2.eh{border-color:#b5763a;color:#b5763a}h2.vh{border-color:#c9a96e;color:#9a7520}
+    table{width:100%;border-collapse:collapse;margin-bottom:8px}
+    th{background:#1c1917;color:#fff;font-size:10px;font-weight:700;text-transform:uppercase;padding:7px 10px;text-align:left}
+    td{padding:6px 10px;border-bottom:1px solid #f0ede8;font-size:11px;vertical-align:top}
+    tr:nth-child(even) td{background:#fafaf9}.vale-row td{background:#fffbeb!important}
+    .sub{font-size:10px;color:#6b6360}.pix{color:#3d6b8a;font-weight:700}.din{color:#2e6b47;font-weight:700}.vale-val{color:#9a7520;font-weight:700}
+    .subtotal{text-align:right;font-size:12px;font-weight:700;margin-bottom:12px;padding:6px 10px;background:#f7f6f3;border-radius:6px}
+    .rodape-total{background:#1c1917;border-radius:10px;padding:14px 18px;display:flex;justify-content:space-between;align-items:center;margin-top:8px}
+    .footer{margin-top:16px;padding-top:10px;border-top:1px solid #e4ddd4;font-size:10px;color:#a8a09a;text-align:center}
+    @media print{body{padding:8px}@page{margin:10mm;size:A4}}
+  </style></head><body>
+  <div class="header">
+    <div><div class="logo">🔥 ${nomeEstab}</div><div class="subtitle">Relatório de Saídas · ${dataLabel}</div></div>
+    <div class="meta">Gerado em: ${new Date().toLocaleString('pt-BR')}<br>Extras: ${extrasDia.length} · Vales: ${valesDia.length}</div>
+  </div>
+  <div class="cards">
+    <div class="card total"><div class="card-label">Total Saídas</div><div class="card-value">${fmt2(totalGeral)}</div></div>
+    <div class="card ext"><div class="card-label">💼 Extras</div><div class="card-value">${fmt2(totalExtras)}</div></div>
+    <div class="card val"><div class="card-label">💸 Vales</div><div class="card-value">${fmt2(totalValesVal)}</div></div>
+    <div class="card din"><div class="card-label">💵 Dinheiro</div><div class="card-value">${fmt2(totalDin)}</div></div>
+  </div>
+  ${extrasDia.length > 0 ? `<h2 class="eh">💼 Pagamentos de Extras (${extrasDia.length})</h2><table><thead><tr><th>Profissional</th><th>Setor</th><th>Valor</th><th>Forma</th></tr></thead><tbody>${linhasExtras}</tbody></table><div class="subtotal" style="color:#b5763a">Subtotal extras: ${fmt2(totalExtras)}</div>` : '<p style="color:#999;font-size:12px;margin-bottom:12px">Nenhum pagamento de extra nesta data.</p>'}
+  ${valesDia.length > 0 ? `<h2 class="vh">💸 Vales (${valesDia.length})</h2><table><thead><tr><th>Funcionário</th><th>Setor</th><th>Valor</th><th>Forma</th></tr></thead><tbody>${linhasVales}</tbody></table><div class="subtotal" style="color:#9a7520">Subtotal vales: ${fmt2(totalValesVal)}</div>` : '<p style="color:#999;font-size:12px;margin-bottom:12px">Nenhum vale nesta data.</p>'}
+  <div class="rodape-total">
+    <div style="font-size:13px;font-weight:700;color:#ffffff80">TOTAL DE SAÍDAS — ${dataLabel}</div>
+    <div style="font-size:24px;font-weight:900;color:#c9a96e">${fmt2(totalGeral)}</div>
+  </div>
+  <div class="footer">${nomeEstab} · Sistema Operacional · ${new Date().getFullYear()}</div>
+  <script>window.onload=()=>window.print()<\/script>
+  </body></html>`
+
+  const w = window.open('', '_blank', 'width=900,height=700')
+  w.document.write(html)
+  w.document.close()
+}
+
 // ─── ABA VALES ────────────────────────────────────────────────────────────────
 
 function TabVales({ store, today, setModal }) {
-  const { vales, pessoas, setores, updateVale, removeVale } = store
+  const { vales, extras, pessoas, setores, updateVale, removeVale, config } = store
+  const [subTela, setSubTela] = useState('lista')
   const [filtro, setFiltro] = useState('hoje')
   const [dataInicio, setDataInicio] = useState(today)
   const [dataFim, setDataFim] = useState(today)
+  const [modoPesquisa, setModoPesquisa] = useState('pessoa')
+  const [buscaPessoa, setBuscaPessoa] = useState('')
+  const [pessoaSel, setPessoaSel] = useState(null)
+  const [dataPesquisa, setDataPesquisa] = useState(today)
+  const [dataRelatorio, setDataRelatorio] = useState(today)
   const [copied, setCopied] = useState({})
 
   const ontem = toDateStr(new Date(new Date(today + 'T12:00:00').getTime() - 86400000))
@@ -3128,10 +3211,32 @@ function TabVales({ store, today, setModal }) {
       .sort((a, b) => b.data_op.localeCompare(a.data_op) || a.nome.localeCompare(b.nome)),
     [vales, from, to]
   )
-
   const totalVales = useMemo(() => valesFiltrados.reduce((a, v) => a + v.valor, 0), [valesFiltrados])
-  const totalDin = useMemo(() => valesFiltrados.filter(v => v.forma_pagamento === 'dinheiro').reduce((a, v) => a + v.valor, 0), [valesFiltrados])
-  const totalPix = useMemo(() => valesFiltrados.filter(v => v.forma_pagamento === 'pix').reduce((a, v) => a + v.valor, 0), [valesFiltrados])
+  const totalDinLista = useMemo(() => valesFiltrados.filter(v => v.forma_pagamento === 'dinheiro').reduce((a, v) => a + v.valor, 0), [valesFiltrados])
+  const totalPixLista = useMemo(() => valesFiltrados.filter(v => v.forma_pagamento === 'pix').reduce((a, v) => a + v.valor, 0), [valesFiltrados])
+
+  // Agrupado por pessoa (todos os vales)
+  const porPessoa = useMemo(() => {
+    const map = {}
+    vales.forEach(v => {
+      const key = v.pessoa_id || v.nome
+      if (!map[key]) map[key] = { pessoa_id: v.pessoa_id, nome: v.nome, funcao: v.funcao, vales: [], total: 0 }
+      map[key].vales.push(v)
+      map[key].total += v.valor
+    })
+    return Object.values(map).sort((a, b) => b.total - a.total)
+  }, [vales])
+
+  const sugestoesPessoa = useMemo(() => {
+    if (!buscaPessoa.trim()) return []
+    return porPessoa.filter(p => p.nome.toLowerCase().includes(buscaPessoa.toLowerCase())).slice(0, 6)
+  }, [buscaPessoa, porPessoa])
+
+  const valesDaData = useMemo(() =>
+    vales.filter(v => v.data_op === dataPesquisa).sort((a, b) => a.nome.localeCompare(b.nome)),
+    [vales, dataPesquisa]
+  )
+  const totalDaData = useMemo(() => valesDaData.reduce((a, v) => a + v.valor, 0), [valesDaData])
 
   const getText = (v) => `VALE ${v.nome} ${v.funcao || ''}`
   const copy = async (v) => {
@@ -3140,91 +3245,264 @@ function TabVales({ store, today, setModal }) {
     setTimeout(() => setCopied(p => ({ ...p, [v.id]: false })), 2000)
   }
 
+  // Card reutilizável para cada vale
+  const CardVale = ({ v }) => {
+    const setor = setores.find(s => s.id === v.setor_id)
+    return (
+      <div style={S.card}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+          <div>
+            <div style={{ fontWeight: 700, fontSize: 15 }}>{v.nome}</div>
+            <div style={{ fontSize: 13, color: '#8a7355' }}>{v.funcao}{setor ? ' · ' + setor.nome : ''}</div>
+            <div style={{ fontSize: 12, color: C.textMuted, marginTop: 2 }}>{dayLabel(v.data_op)}</div>
+            {v.obs && <div style={{ fontSize: 12, color: '#aaa', marginTop: 2 }}>{v.obs}</div>}
+            <div style={{ marginTop: 6 }}>
+              <Badge color={v.forma_pagamento === 'pix' ? C.secondary : C.success}>
+                {v.forma_pagamento === 'pix' ? '📱 Pix' : '💵 Dinheiro'}
+              </Badge>
+            </div>
+          </div>
+          <div style={{ textAlign: 'right' }}>
+            <div style={{ fontSize: 20, fontWeight: 700, color: C.gold }}>{fmt(v.valor)}</div>
+            {v.lancado ? <Badge color={C.success}>✓ Lançado</Badge> : <Badge color="#f59e0b">Não lançado</Badge>}
+          </div>
+        </div>
+        <div style={{ display: 'flex', gap: 6, marginTop: 10 }}>
+          <button onClick={() => copy(v)}
+            style={{ ...S.btn(copied[v.id] ? '#22c55e' : C.gold, !copied[v.id]), flex: 'none', padding: '8px 14px' }}>
+            {copied[v.id] ? '✓' : '📋'}
+          </button>
+          <button onClick={() => updateVale(v.id, { lancado: !v.lancado })}
+            style={{ ...S.btn(v.lancado ? '#22c55e' : '#e0d5c5'), flex: 'none', padding: '8px 14px', color: v.lancado ? '#fff' : '#666' }}>
+            {v.lancado ? '✓' : '○'}
+          </button>
+          <button onClick={() => { if (confirm('Remover vale de ' + v.nome + '?')) removeVale(v.id) }}
+            style={{ background: 'none', border: '1px solid #f0e8d8', borderRadius: 12, padding: '8px 14px', fontSize: 13, color: '#ef4444', cursor: 'pointer' }}>
+            🗑
+          </button>
+        </div>
+        {v.assinatura && <img src={v.assinatura} alt="Ass." style={{ maxHeight: 36, marginTop: 8, border: '1px solid #e0d5c5', borderRadius: 4 }} />}
+      </div>
+    )
+  }
+
   return (
     <div>
       <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
         <button onClick={() => setModal({ type: 'addVale' })} style={{ ...S.btn(C.gold), flex: 1 }}>💸 Novo Vale</button>
       </div>
 
-      <div style={{ ...S.card, background: 'linear-gradient(135deg,#1a1200,#2d2000)', color: '#fff' }}>
-        <div style={{ fontSize: 11, color: '#c9a96e', textTransform: 'uppercase' }}>Total de Vales</div>
-        <div style={{ fontSize: 28, fontWeight: 700, color: '#c9a96e' }}>{fmt(totalVales)}</div>
-        <div style={{ display: 'flex', gap: 16, marginTop: 6 }}>
-          <div style={{ fontSize: 12, color: '#ffffff80' }}>💵 {fmt(totalDin)}</div>
-          <div style={{ fontSize: 12, color: '#ffffff80' }}>📱 {fmt(totalPix)}</div>
-          <div style={{ fontSize: 12, color: '#ffffff50' }}>{valesFiltrados.length} vale{valesFiltrados.length !== 1 ? 's' : ''}</div>
-        </div>
-      </div>
-
-      {/* Filtro de período */}
-      <div style={{ display: 'flex', gap: 4, marginBottom: 10, flexWrap: 'wrap' }}>
-        {[['hoje','Hoje'],['ontem','Ontem'],['semana','7 dias'],['mes','Mês'],['livre','Livre']].map(([id, label]) => (
-          <button key={id} onClick={() => setFiltro(id)}
-            style={{ padding: '6px 12px', border: `2px solid ${filtro === id ? C.gold : C.border}`, borderRadius: 20, background: filtro === id ? C.gold : C.bgCard, color: filtro === id ? '#fff' : C.textMuted, fontSize: 12, fontWeight: filtro === id ? 700 : 400, cursor: 'pointer' }}>
+      {/* Sub-navegação */}
+      <div style={{ display: 'flex', gap: 4, background: '#f0e8d8', padding: 4, borderRadius: 12, marginBottom: 14 }}>
+        {[['lista','📋 Lista'],['pesquisa','🔍 Pesquisa'],['relatorio','📄 Relatório']].map(([id, label]) => (
+          <button key={id} onClick={() => setSubTela(id)}
+            style={{ flex: 1, padding: '8px 2px', border: 'none', borderRadius: 8, background: subTela === id ? '#fff' : 'transparent', cursor: 'pointer', fontSize: 11, fontWeight: subTela === id ? 700 : 400, color: subTela === id ? C.gold : '#999' }}>
             {label}
           </button>
         ))}
       </div>
 
-      {filtro === 'livre' && (
-        <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
-          <div style={{ flex: 1 }}><label style={S.label}>De</label><input type="date" value={dataInicio} onChange={e => setDataInicio(e.target.value)} style={S.input} /></div>
-          <div style={{ flex: 1 }}><label style={S.label}>Até</label><input type="date" value={dataFim} onChange={e => setDataFim(e.target.value)} style={S.input} /></div>
+      {/* ─── LISTA ─── */}
+      {subTela === 'lista' && <>
+        <div style={{ ...S.card, background: 'linear-gradient(135deg,#1a1200,#2d2000)', color: '#fff' }}>
+          <div style={{ fontSize: 11, color: '#c9a96e', textTransform: 'uppercase' }}>Total de Vales</div>
+          <div style={{ fontSize: 28, fontWeight: 700, color: '#c9a96e' }}>{fmt(totalVales)}</div>
+          <div style={{ display: 'flex', gap: 16, marginTop: 6 }}>
+            <div style={{ fontSize: 12, color: '#ffffff80' }}>💵 {fmt(totalDinLista)}</div>
+            <div style={{ fontSize: 12, color: '#ffffff80' }}>📱 {fmt(totalPixLista)}</div>
+            <div style={{ fontSize: 12, color: '#ffffff50' }}>{valesFiltrados.length} vale{valesFiltrados.length !== 1 ? 's' : ''}</div>
+          </div>
         </div>
-      )}
 
-      <div style={{ ...S.card, background: '#f5f0e8', marginBottom: 12 }}>
-        <div style={{ fontSize: 13, color: '#8a7355' }}>Copie o texto e cole no sistema interno. O valor deve ser lançado manualmente.</div>
-      </div>
-
-      {valesFiltrados.length === 0 && (
-        <div style={{ ...S.card, textAlign: 'center', padding: 32, color: '#999' }}>
-          <div style={{ fontSize: 40 }}>💸</div>
-          <div>Nenhum vale no período</div>
+        <div style={{ display: 'flex', gap: 4, marginBottom: 10, flexWrap: 'wrap' }}>
+          {[['hoje','Hoje'],['ontem','Ontem'],['semana','7 dias'],['mes','Mês'],['livre','Livre']].map(([id, label]) => (
+            <button key={id} onClick={() => setFiltro(id)}
+              style={{ padding: '6px 12px', border: `2px solid ${filtro === id ? C.gold : C.border}`, borderRadius: 20, background: filtro === id ? C.gold : C.bgCard, color: filtro === id ? '#fff' : C.textMuted, fontSize: 12, fontWeight: filtro === id ? 700 : 400, cursor: 'pointer' }}>
+              {label}
+            </button>
+          ))}
         </div>
-      )}
 
-      {valesFiltrados.map(v => {
-        const setor = setores.find(s => s.id === v.setor_id)
-        return (
-          <div key={v.id} style={S.card}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+        {filtro === 'livre' && (
+          <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
+            <div style={{ flex: 1 }}><label style={S.label}>De</label><input type="date" value={dataInicio} onChange={e => setDataInicio(e.target.value)} style={S.input} /></div>
+            <div style={{ flex: 1 }}><label style={S.label}>Até</label><input type="date" value={dataFim} onChange={e => setDataFim(e.target.value)} style={S.input} /></div>
+          </div>
+        )}
+
+        <div style={{ ...S.card, background: '#f5f0e8', marginBottom: 12 }}>
+          <div style={{ fontSize: 13, color: '#8a7355' }}>Copie e cole no sistema interno. Valor lançado manualmente.</div>
+        </div>
+
+        {valesFiltrados.length === 0 && (
+          <div style={{ ...S.card, textAlign: 'center', padding: 32, color: '#999' }}>
+            <div style={{ fontSize: 40 }}>💸</div><div>Nenhum vale no período</div>
+          </div>
+        )}
+        {valesFiltrados.map(v => <CardVale key={v.id} v={v} />)}
+      </>}
+
+      {/* ─── PESQUISA ─── */}
+      {subTela === 'pesquisa' && <>
+        <div style={{ display: 'flex', gap: 4, background: '#f0e8d8', padding: 4, borderRadius: 10, marginBottom: 14 }}>
+          {[['pessoa','👤 Por Pessoa'],['data','📅 Por Data']].map(([id, label]) => (
+            <button key={id} onClick={() => { setModoPesquisa(id); setPessoaSel(null); setBuscaPessoa('') }}
+              style={{ flex: 1, padding: '8px', border: 'none', borderRadius: 8, background: modoPesquisa === id ? '#fff' : 'transparent', cursor: 'pointer', fontSize: 12, fontWeight: modoPesquisa === id ? 700 : 400, color: modoPesquisa === id ? C.gold : '#999' }}>
+              {label}
+            </button>
+          ))}
+        </div>
+
+        {/* Por pessoa */}
+        {modoPesquisa === 'pessoa' && (
+          <div>
+            {!pessoaSel && (
+              <div style={{ position: 'relative', marginBottom: 12 }}>
+                <input
+                  value={buscaPessoa}
+                  onChange={e => setBuscaPessoa(e.target.value)}
+                  style={S.input}
+                  placeholder="Buscar funcionário pelo nome..."
+                />
+                {sugestoesPessoa.length > 0 && (
+                  <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, background: C.bgCard2, border: `1px solid ${C.border}`, borderRadius: 10, zIndex: 50, overflow: 'hidden', marginTop: 4 }}>
+                    {sugestoesPessoa.map((p, i) => (
+                      <div key={i} onClick={() => { setPessoaSel(p); setBuscaPessoa('') }}
+                        style={{ padding: '10px 14px', cursor: 'pointer', borderBottom: `1px solid ${C.border}` }}>
+                        <div style={{ fontWeight: 700, fontSize: 14 }}>{p.nome}</div>
+                        <div style={{ fontSize: 11, color: C.textMuted }}>{p.funcao} · {p.vales.length} vale{p.vales.length !== 1 ? 's' : ''} · {fmt(p.total)}</div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Ranking geral quando não há busca */}
+            {!pessoaSel && !buscaPessoa && (
               <div>
-                <div style={{ fontWeight: 700, fontSize: 16 }}>{v.nome}</div>
-                <div style={{ fontSize: 13, color: '#8a7355' }}>{v.funcao}{setor ? ' · ' + setor.nome : ''}</div>
-                <div style={{ fontSize: 12, color: C.textMuted, marginTop: 2 }}>{dayLabel(v.data_op)}</div>
-                {v.obs && <div style={{ fontSize: 12, color: '#aaa', marginTop: 2 }}>{v.obs}</div>}
-                <div style={{ marginTop: 6 }}>
-                  <Badge color={v.forma_pagamento === 'pix' ? C.secondary : C.success}>
-                    {v.forma_pagamento === 'pix' ? '📱 Pix' : '💵 Dinheiro'}
-                  </Badge>
+                <div style={{ fontSize: 11, fontWeight: 700, color: C.textMuted, marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+                  Todos com vale registrado
                 </div>
+                {porPessoa.length === 0 && (
+                  <div style={{ ...S.card, textAlign: 'center', padding: 24, color: '#999' }}>Nenhum vale registrado ainda</div>
+                )}
+                {porPessoa.map((p, i) => (
+                  <div key={i} onClick={() => setPessoaSel(p)} style={{ ...S.card, cursor: 'pointer', marginBottom: 8 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <div>
+                        <div style={{ fontWeight: 700, fontSize: 15 }}>{p.nome}</div>
+                        <div style={{ fontSize: 12, color: C.textMuted }}>{p.funcao} · {p.vales.length} vale{p.vales.length !== 1 ? 's' : ''}</div>
+                        <div style={{ fontSize: 11, color: C.textMuted, marginTop: 2 }}>
+                          {[...new Set(p.vales.map(v => dayLabel(v.data_op)))].slice(0, 3).join(' · ')}
+                          {p.vales.length > 3 && ` +${p.vales.length - 3} dias`}
+                        </div>
+                      </div>
+                      <div style={{ textAlign: 'right' }}>
+                        <div style={{ fontSize: 18, fontWeight: 700, color: C.gold }}>{fmt(p.total)}</div>
+                        <div style={{ fontSize: 10, color: C.secondary }}>Ver detalhes →</div>
+                      </div>
+                    </div>
+                  </div>
+                ))}
               </div>
-              <div style={{ textAlign: 'right' }}>
-                <div style={{ fontSize: 20, fontWeight: 700, color: C.gold }}>{fmt(v.valor)}</div>
-                {v.lancado ? <Badge color={C.success}>✓ Lançado</Badge> : <Badge color="#f59e0b">Não lançado</Badge>}
+            )}
+
+            {/* Detalhe da pessoa selecionada */}
+            {pessoaSel && (
+              <div>
+                <div style={{ ...S.card, background: 'linear-gradient(135deg,#1a1200,#2d2000)', color: '#fff', marginBottom: 12 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                    <div>
+                      <div style={{ fontSize: 16, fontWeight: 800, color: '#c9a96e' }}>{pessoaSel.nome}</div>
+                      <div style={{ fontSize: 12, color: '#ffffff80' }}>{pessoaSel.funcao}</div>
+                      <div style={{ fontSize: 11, color: '#ffffff50', marginTop: 4 }}>
+                        {pessoaSel.vales.length} vale{pessoaSel.vales.length !== 1 ? 's' : ''} registrados
+                      </div>
+                    </div>
+                    <div style={{ textAlign: 'right' }}>
+                      <div style={{ fontSize: 24, fontWeight: 700, color: '#c9a96e' }}>{fmt(pessoaSel.total)}</div>
+                      <button onClick={() => setPessoaSel(null)}
+                        style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.5)', fontSize: 11, cursor: 'pointer', marginTop: 4 }}>
+                        ✕ Voltar
+                      </button>
+                    </div>
+                  </div>
+                </div>
+                {pessoaSel.vales.sort((a,b) => b.data_op.localeCompare(a.data_op)).map(v => <CardVale key={v.id} v={v} />)}
               </div>
-            </div>
-            <div style={{ display: 'flex', gap: 6, marginTop: 10 }}>
-              <button onClick={() => copy(v)}
-                style={{ ...S.btn(copied[v.id] ? '#22c55e' : C.gold, !copied[v.id]), flex: 'none', padding: '8px 14px' }}>
-                {copied[v.id] ? '✓' : '📋'}
-              </button>
-              <button onClick={() => updateVale(v.id, { lancado: !v.lancado })}
-                style={{ ...S.btn(v.lancado ? '#22c55e' : '#e0d5c5'), flex: 'none', padding: '8px 14px', color: v.lancado ? '#fff' : '#666' }}>
-                {v.lancado ? '✓' : '○'}
-              </button>
-              <button onClick={() => { if (confirm('Remover vale de ' + v.nome + '?')) removeVale(v.id) }}
-                style={{ background: 'none', border: '1px solid #f0e8d8', borderRadius: 12, padding: '8px 14px', fontSize: 13, color: '#ef4444', cursor: 'pointer' }}>
-                🗑
-              </button>
-            </div>
-            {v.assinatura && (
-              <img src={v.assinatura} alt="Ass." style={{ maxHeight: 36, marginTop: 8, border: '1px solid #e0d5c5', borderRadius: 4 }} />
             )}
           </div>
-        )
-      })}
+        )}
+
+        {/* Por data */}
+        {modoPesquisa === 'data' && (
+          <div>
+            <div style={{ marginBottom: 12 }}>
+              <label style={S.label}>Selecionar data</label>
+              <input type="date" value={dataPesquisa} onChange={e => setDataPesquisa(e.target.value)} style={S.input} />
+            </div>
+            <div style={{ ...S.card, background: 'linear-gradient(135deg,#1a1200,#2d2000)', color: '#fff', marginBottom: 12 }}>
+              <div style={{ fontSize: 11, color: '#c9a96e', textTransform: 'uppercase' }}>{dayLabel(dataPesquisa)}</div>
+              <div style={{ fontSize: 24, fontWeight: 700, color: '#c9a96e' }}>{fmt(totalDaData)}</div>
+              <div style={{ fontSize: 12, color: '#ffffff80' }}>{valesDaData.length} vale{valesDaData.length !== 1 ? 's' : ''}</div>
+            </div>
+            {valesDaData.length === 0 && (
+              <div style={{ ...S.card, textAlign: 'center', padding: 24, color: '#999' }}>
+                <div style={{ fontSize: 32 }}>💸</div><div>Nenhum vale em {dayLabel(dataPesquisa)}</div>
+              </div>
+            )}
+            {valesDaData.map(v => <CardVale key={v.id} v={v} />)}
+          </div>
+        )}
+      </>}
+
+      {/* ─── RELATÓRIO ─── */}
+      {subTela === 'relatorio' && (
+        <div>
+          <div style={{ ...S.card }}>
+            <div style={{ fontSize: 14, fontWeight: 800, color: C.text, marginBottom: 4 }}>📄 Relatório de Saídas do Dia</div>
+            <div style={{ fontSize: 12, color: C.textMuted, marginBottom: 14 }}>
+              Inclui todos os pagamentos de extras + vales da data. Exportável em PDF.
+            </div>
+            <label style={S.label}>Data do relatório</label>
+            <input type="date" value={dataRelatorio} onChange={e => setDataRelatorio(e.target.value)} style={{ ...S.input, marginBottom: 14 }} />
+            {(() => {
+              const extrasDia = extras.filter(e => e.pago && e.data_op === dataRelatorio)
+              const valesDia = vales.filter(v => v.data_op === dataRelatorio)
+              const totalEx = extrasDia.reduce((a, e) => a + e.valor_final, 0)
+              const totalVa = valesDia.reduce((a, v) => a + v.valor, 0)
+              const totalG = totalEx + totalVa
+              return (
+                <div>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8, marginBottom: 14 }}>
+                    <div style={{ background: C.bgCard2, borderRadius: 10, padding: 10, textAlign: 'center', border: `1px solid ${C.border}` }}>
+                      <div style={{ fontSize: 10, color: C.textMuted, textTransform: 'uppercase' }}>Extras</div>
+                      <div style={{ fontSize: 16, fontWeight: 700, color: C.primary }}>{fmt(totalEx)}</div>
+                      <div style={{ fontSize: 10, color: C.textMuted }}>{extrasDia.length} pag.</div>
+                    </div>
+                    <div style={{ background: C.bgCard2, borderRadius: 10, padding: 10, textAlign: 'center', border: `1px solid ${C.border}` }}>
+                      <div style={{ fontSize: 10, color: C.textMuted, textTransform: 'uppercase' }}>Vales</div>
+                      <div style={{ fontSize: 16, fontWeight: 700, color: C.gold }}>{fmt(totalVa)}</div>
+                      <div style={{ fontSize: 10, color: C.textMuted }}>{valesDia.length} vale{valesDia.length !== 1 ? 's' : ''}</div>
+                    </div>
+                    <div style={{ background: '#1c1917', borderRadius: 10, padding: 10, textAlign: 'center' }}>
+                      <div style={{ fontSize: 10, color: '#ffffff80', textTransform: 'uppercase' }}>Total</div>
+                      <div style={{ fontSize: 16, fontWeight: 700, color: '#c9a96e' }}>{fmt(totalG)}</div>
+                      <div style={{ fontSize: 10, color: '#ffffff50' }}>saída total</div>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => exportarRelatorioDiaPDF(extrasDia, valesDia, pessoas, setores, config, dataRelatorio)}
+                    style={{ ...S.btn(C.danger), width: '100%' }}>
+                    📄 Exportar PDF do Dia
+                  </button>
+                </div>
+              )
+            })()}
+          </div>
+        </div>
+      )}
     </div>
   )
 }
@@ -3270,7 +3548,6 @@ function ModalNovoVale({ store, today, onClose }) {
     try {
       let assinaturaUrl = null
       if (assinatura) assinaturaUrl = await uploadAssinatura('vale_' + Date.now(), assinatura)
-
       await addVale({
         pessoa_id:       pessoaId,
         nome:            pessoa?.nome || '',
@@ -3285,21 +3562,15 @@ function ModalNovoVale({ store, today, onClose }) {
         lancado:         false,
         data_pagamento:  new Date().toISOString(),
       })
-
       if (forma === 'pix') {
-        if (!pessoa?.chave_pix) {
-          alert('⚠️ Este funcionário não tem chave Pix cadastrada.')
-        } else {
+        if (!pessoa?.chave_pix) { alert('⚠️ Este funcionário não tem chave Pix cadastrada.') }
+        else {
           const numero = config?.whatsapp_pix || DEFAULT_CONFIG.whatsapp_pix
           window.open(`https://wa.me/${numero}?text=${encodeURIComponent(buildPixMsg())}`, '_blank')
         }
       }
-
       onClose()
-    } catch (err) {
-      alert('Erro ao registrar vale. Tente novamente.')
-      console.error(err)
-    }
+    } catch (err) { alert('Erro ao registrar vale. Tente novamente.'); console.error(err) }
     setSalvando(false)
   }
 
@@ -3316,7 +3587,6 @@ function ModalNovoVale({ store, today, onClose }) {
   return (
     <Modal title="💸 Novo Vale" onClose={onClose}>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-
         <div>
           <label style={S.label}>Funcionário da casa *</label>
           <select value={pessoaId} onChange={e => setPessoaId(e.target.value)} style={{ ...S.input, fontWeight: pessoaId ? 700 : 400 }}>
@@ -3360,14 +3630,8 @@ function ModalNovoVale({ store, today, onClose }) {
         <div>
           <label style={S.label}>Forma de pagamento</label>
           <div style={{ display: 'flex', gap: 8 }}>
-            <button onClick={() => setForma('dinheiro')}
-              style={{ flex: 1, padding: '12px', border: `2px solid ${forma === 'dinheiro' ? '#22c55e' : C.border}`, borderRadius: 10, background: forma === 'dinheiro' ? '#22c55e20' : C.bgCard2, cursor: 'pointer', fontSize: 13, fontWeight: 700, color: forma === 'dinheiro' ? '#22c55e' : C.textMuted }}>
-              💵 Dinheiro
-            </button>
-            <button onClick={() => setForma('pix')}
-              style={{ flex: 1, padding: '12px', border: `2px solid ${forma === 'pix' ? '#3b82f6' : C.border}`, borderRadius: 10, background: forma === 'pix' ? '#3b82f620' : C.bgCard2, cursor: 'pointer', fontSize: 13, fontWeight: 700, color: forma === 'pix' ? '#3b82f6' : C.textMuted }}>
-              📱 Pix
-            </button>
+            <button onClick={() => setForma('dinheiro')} style={{ flex: 1, padding: '12px', border: `2px solid ${forma === 'dinheiro' ? '#22c55e' : C.border}`, borderRadius: 10, background: forma === 'dinheiro' ? '#22c55e20' : C.bgCard2, cursor: 'pointer', fontSize: 13, fontWeight: 700, color: forma === 'dinheiro' ? '#22c55e' : C.textMuted }}>💵 Dinheiro</button>
+            <button onClick={() => setForma('pix')} style={{ flex: 1, padding: '12px', border: `2px solid ${forma === 'pix' ? '#3b82f6' : C.border}`, borderRadius: 10, background: forma === 'pix' ? '#3b82f620' : C.bgCard2, cursor: 'pointer', fontSize: 13, fontWeight: 700, color: forma === 'pix' ? '#3b82f6' : C.textMuted }}>📱 Pix</button>
           </div>
         </div>
 
@@ -3387,10 +3651,7 @@ function ModalNovoVale({ store, today, onClose }) {
         <div>
           <label style={S.label}>Assinatura</label>
           {assinatura
-            ? <div>
-                <img src={assinatura} alt="Assinatura" style={{ width: '100%', border: '1px solid #e0d5c5', borderRadius: 8 }} />
-                <button onClick={() => setAssinatura(null)} style={{ background: 'none', border: 'none', color: '#999', fontSize: 12, cursor: 'pointer' }}>Refazer</button>
-              </div>
+            ? <div><img src={assinatura} alt="Assinatura" style={{ width: '100%', border: '1px solid #e0d5c5', borderRadius: 8 }} /><button onClick={() => setAssinatura(null)} style={{ background: 'none', border: 'none', color: '#999', fontSize: 12, cursor: 'pointer' }}>Refazer</button></div>
             : <button onClick={() => setStep('assinatura')} style={S.btn('#8a7355')}>✍️ Coletar Assinatura</button>
           }
         </div>
