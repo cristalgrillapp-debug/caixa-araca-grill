@@ -340,6 +340,8 @@ function AppPrincipal({ usuario, onLogout }) {
   const [setores, setSetores] = useState([])
   const [modal, setModal] = useState(null)
   const [vales, setVales] = useState([])
+  const [despesas, setDespesas] = useState([])
+  const [categorias, setCategorias] = useState([])
   const [config, setConfig] = useState(DEFAULT_CONFIG)
   const today = todayOp(config)
 
@@ -376,10 +378,35 @@ function AppPrincipal({ usuario, onLogout }) {
       orderBy('data_op', 'desc'),
       limit(500)
     )
+    const qDespesas = query(
+      collection(db, 'despesas'),
+      where('data_op', '>=', dataLimite),
+      orderBy('data_op', 'desc'),
+      limit(500)
+    )
+
+    const CATS_PADRAO = [
+      { emoji: '🛒', nome: 'Compras', ativo: true },
+      { emoji: '🎮', nome: 'Fichas/Tokens', ativo: true },
+      { emoji: '🔧', nome: 'Manutenção', ativo: true },
+      { emoji: '🧹', nome: 'Limpeza', ativo: true },
+      { emoji: '🚗', nome: 'Transporte', ativo: true },
+      { emoji: '📦', nome: 'Estoque', ativo: true },
+      { emoji: '💊', nome: 'Farmácia', ativo: true },
+      { emoji: '📝', nome: 'Outros', ativo: true },
+    ]
 
     const unsubs = [
       onSnapshot(qExtras, s => setExtras(s.docs.map(d => ({ id: d.id, ...d.data() })))),
       onSnapshot(qVales, s => setVales(s.docs.map(d => ({ id: d.id, ...d.data() })))),
+      onSnapshot(qDespesas, s => setDespesas(s.docs.map(d => ({ id: d.id, ...d.data() })))),
+      onSnapshot(collection(db, 'categorias_despesas'), async s => {
+        if (s.empty) {
+          for (const c of CATS_PADRAO) await addDoc(collection(db, 'categorias_despesas'), c)
+        } else {
+          setCategorias(s.docs.map(d => ({ id: d.id, ...d.data() })).filter(c => c.ativo))
+        }
+      }),
       onSnapshot(collection(db, 'pessoas'), s => setPessoas(s.docs.map(d => ({ id: d.id, ...d.data() })))),
       onSnapshot(collection(db, 'setores'), s => {
         const data = s.docs.map(d => ({ id: d.id, ...d.data() }))
@@ -416,6 +443,14 @@ function AppPrincipal({ usuario, onLogout }) {
   const updateVale = async (id, data) => await updateDoc(doc(db, 'vales', id), data)
   const removeVale = async (id) => await deleteDoc(doc(db, 'vales', id))
 
+  const addDespesa = async (data) => await addDoc(collection(db, 'despesas'), data)
+  const updateDespesa = async (id, data) => await updateDoc(doc(db, 'despesas', id), data)
+  const removeDespesa = async (id) => await deleteDoc(doc(db, 'despesas', id))
+
+  const addCategoria = async (data) => await addDoc(collection(db, 'categorias_despesas'), data)
+  const updateCategoria = async (id, data) => await updateDoc(doc(db, 'categorias_despesas', id), data)
+  const removeCategoria = async (id) => await deleteDoc(doc(db, 'categorias_despesas', id))
+
   const registrarLog = async (acao, detalhes = {}) => {
     try {
       await addDoc(collection(db, 'logs'), {
@@ -430,13 +465,13 @@ function AppPrincipal({ usuario, onLogout }) {
     } catch (e) { console.warn('Log falhou:', e) }
   }
 
-  const store = { extras, vales, pessoas, setores, config, updateConfig, addExtra, updateExtra, removeExtra, addPessoa, updatePessoa, removePessoa, addSetor, updateSetor, removeSetor, addVale, updateVale, removeVale, usuario, onLogout, registrarLog }
+  const store = { extras, vales, despesas, categorias, pessoas, setores, config, updateConfig, addExtra, updateExtra, removeExtra, addPessoa, updatePessoa, removePessoa, addSetor, updateSetor, removeSetor, addVale, updateVale, removeVale, addDespesa, updateDespesa, removeDespesa, addCategoria, updateCategoria, removeCategoria, usuario, onLogout, registrarLog }
 
   const tabs = [
     { id: 'extras', icon: '👤', label: 'Extras' },
     { id: 'pagamentos', icon: '💳', label: 'Pagamentos' },
     { id: 'lancamentos', icon: '📋', label: 'Lançamentos' },
-    { id: 'vales', icon: '💸', label: 'Vales' },
+    { id: 'vales', icon: '💸', label: 'Saídas' },
     { id: 'relatorios', icon: '📊', label: 'Dashboard' },
     ...(usuario?.role === 'admin' ? [{ id: 'config', icon: '⚙️', label: 'Config' }] : []),
   ]
@@ -504,6 +539,7 @@ function AppPrincipal({ usuario, onLogout }) {
       {modal?.type === 'limparBanco'     && <ModalLimparBanco store={store} onClose={() => setModal(null)} />}
       {modal?.type === 'redefinirSenha'  && <ModalRedefinirSenha store={store} onClose={() => setModal(null)} />}
       {modal?.type === 'addVale'         && <ModalNovoVale store={store} today={today} onClose={() => setModal(null)} />}
+      {modal?.type === 'addDespesa'      && <ModalNovaDespesa store={store} today={today} onClose={() => setModal(null)} />}
     </div>
   )
 }
@@ -1297,45 +1333,137 @@ function ModalPagar({ store, extra, today, onClose }) {
 // ─── ABA LANÇAMENTOS ──────────────────────────────────────────────────────────
 
 function TabLancamentos({ store, today }) {
-  const { extras, updateExtra } = store
+  const { extras, vales, despesas, updateExtra, updateVale, updateDespesa } = store
+  const [copied, setCopied] = useState({})
+
   const todayExtras = useMemo(() => {
     const all = extras.filter(e => e.data_op === today)
-    const naoLancados = all.filter(e => !e.lancado).sort((a,b) => a.nome.localeCompare(b.nome))
-    const lancados = all.filter(e => e.lancado).sort((a,b) => a.nome.localeCompare(b.nome))
-    return [...naoLancados, ...lancados]
+    return [...all.filter(e => !e.lancado).sort((a,b) => a.nome.localeCompare(b.nome)),
+            ...all.filter(e =>  e.lancado).sort((a,b) => a.nome.localeCompare(b.nome))]
   }, [extras, today])
-  const [copied, setCopied] = useState({})
-  const getText = (e) => `EXTRA ${e.nome} ${e.funcao}${e.turnos ? ' ' + e.turnos : ''}`
-  const copy = async (e) => {
-    try { await navigator.clipboard.writeText(getText(e)) } catch { }
-    setCopied(p => ({ ...p, [e.id]: true }))
-    setTimeout(() => setCopied(p => ({ ...p, [e.id]: false })), 2000)
+
+  const todayVales = useMemo(() => {
+    const all = (vales||[]).filter(v => v.data_op === today)
+    return [...all.filter(v => !v.lancado).sort((a,b) => a.nome.localeCompare(b.nome)),
+            ...all.filter(v =>  v.lancado).sort((a,b) => a.nome.localeCompare(b.nome))]
+  }, [vales, today])
+
+  const todayDespesas = useMemo(() => {
+    const all = (despesas||[]).filter(d => d.data_op === today)
+    return [...all.filter(d => !d.lancado).sort((a,b) => a.descricao.localeCompare(b.descricao)),
+            ...all.filter(d =>  d.lancado).sort((a,b) => a.descricao.localeCompare(b.descricao))]
+  }, [despesas, today])
+
+  const semNada = todayExtras.length === 0 && todayVales.length === 0 && todayDespesas.length === 0
+
+  const copy = async (id, texto) => {
+    try { await navigator.clipboard.writeText(texto) } catch {}
+    setCopied(p => ({ ...p, [id]: true }))
+    setTimeout(() => setCopied(p => ({ ...p, [id]: false })), 2000)
   }
+
+  const Divisor = ({ label, cor, qtd }) => (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8, marginTop: 4 }}>
+      <div style={{ flex: 1, height: 1, background: cor + '44' }} />
+      <span style={{ fontSize: 11, color: cor, fontWeight: 800, textTransform: 'uppercase' }}>{label} ({qtd})</span>
+      <div style={{ flex: 1, height: 1, background: cor + '44' }} />
+    </div>
+  )
+
   return (
     <div>
-      <div style={{ ...S.card, background: '#f5f0e8', marginBottom: 12 }}><div style={{ fontSize: 13, color: '#8a7355' }}>Copie o texto e cole no sistema interno. O valor deve ser lançado manualmente.</div></div>
-      {todayExtras.length === 0 && <div style={{ ...S.card, textAlign: 'center', padding: 32, color: '#999' }}><div style={{ fontSize: 32 }}>📋</div><div>Nenhum extra hoje</div></div>}
-      {todayExtras.map(e => (
-        <div key={e.id} style={S.card}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <div>
-              <div style={{ fontFamily: 'monospace', fontSize: 14, color: '#2d2d2d' }}>{getText(e)}</div>
-              <div style={{ fontSize: 12, color: '#999', marginTop: 2 }}>{fmt(e.valor_final)} · {e.pago ? (e.forma_pagamento === 'pix' ? '📱 Pix' : '💵 Dinheiro') : '⏳ Pendente'}</div>
-              {(e.trocos_descontados || []).length > 0 && (
-                <div style={{ fontSize: 11, color: '#ef4444' }}>Troco descontado: −{fmt(e.trocos_descontados.reduce((a, t) => a + t.valor, 0))}</div>
-              )}
-              {e.troco_gerado > 0 && (
-                <div style={{ fontSize: 11, color: '#f59e0b' }}>Troco gerado: +{fmt(e.troco_gerado)}</div>
-              )}
-            </div>
-            <div style={{ display: 'flex', gap: 6 }}>
-              <button onClick={() => copy(e)} style={{ ...S.btn(copied[e.id] ? '#22c55e' : '#c9a96e'), flex: 'none', padding: '8px 12px' }}>{copied[e.id] ? '✓' : '📋'}</button>
-              <button onClick={() => updateExtra(e.id, { lancado: !e.lancado })} style={{ ...S.btn(e.lancado ? '#22c55e' : '#e0d5c5'), flex: 'none', padding: '8px 12px', color: e.lancado ? '#fff' : '#666' }}>{e.lancado ? '✓' : '○'}</button>
-            </div>
-          </div>
-          {e.pago && <div style={{ marginTop: 6 }}>{e.lancado ? <Badge color="#22c55e">✓ Lançado</Badge> : <Badge color="#f59e0b">Não lançado</Badge>}</div>}
+      <div style={{ ...S.card, background: '#f5f0e8', marginBottom: 12 }}>
+        <div style={{ fontSize: 13, color: '#8a7355' }}>Copie e cole no sistema interno. Valores lançados manualmente.</div>
+      </div>
+
+      {semNada && (
+        <div style={{ ...S.card, textAlign: 'center', padding: 32, color: '#999' }}>
+          <div style={{ fontSize: 32 }}>📋</div><div>Nenhum lançamento hoje</div>
         </div>
-      ))}
+      )}
+
+      {/* EXTRAS */}
+      {todayExtras.length > 0 && <>
+        <Divisor label="Extras" cor={C.primary} qtd={todayExtras.length} />
+        {todayExtras.map(e => {
+          const texto = `EXTRA ${e.nome} ${e.funcao}${e.turnos ? ' ' + e.turnos : ''}`
+          return (
+            <div key={e.id} style={S.card}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div>
+                  <div style={{ fontFamily: 'monospace', fontSize: 14, color: '#2d2d2d' }}>{texto}</div>
+                  <div style={{ fontSize: 12, color: '#999', marginTop: 2 }}>{fmt(e.valor_final)} · {e.pago ? (e.forma_pagamento === 'pix' ? '📱 Pix' : '💵 Dinheiro') : '⏳ Pendente'}</div>
+                  {(e.trocos_descontados||[]).length > 0 && <div style={{ fontSize: 11, color: '#ef4444' }}>Troco: −{fmt(e.trocos_descontados.reduce((a,t)=>a+t.valor,0))}</div>}
+                </div>
+                <div style={{ display: 'flex', gap: 6 }}>
+                  <button onClick={() => copy(e.id, texto)} style={{ ...S.btn(copied[e.id] ? '#22c55e' : C.primary), flex: 'none', padding: '8px 12px' }}>{copied[e.id] ? '✓' : '📋'}</button>
+                  <button onClick={() => updateExtra(e.id, { lancado: !e.lancado })} style={{ ...S.btn(e.lancado ? '#22c55e' : '#e0d5c5'), flex: 'none', padding: '8px 12px', color: e.lancado ? '#fff' : '#666' }}>{e.lancado ? '✓' : '○'}</button>
+                </div>
+              </div>
+              {e.pago && <div style={{ marginTop: 6 }}>{e.lancado ? <Badge color="#22c55e">✓ Lançado</Badge> : <Badge color="#f59e0b">Não lançado</Badge>}</div>}
+            </div>
+          )
+        })}
+      </>}
+
+      {/* VALES */}
+      {todayVales.length > 0 && <>
+        <Divisor label="Vales" cor={C.gold} qtd={todayVales.length} />
+        {todayVales.map(v => {
+          const texto = `VALE ${v.nome} ${v.funcao || ''}`
+          return (
+            <div key={v.id} style={{ ...S.card, borderColor: C.gold + '44' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div>
+                  <div style={{ fontFamily: 'monospace', fontSize: 14, color: '#2d2d2d' }}>{texto}</div>
+                  <div style={{ fontSize: 12, color: '#999', marginTop: 2 }}>{fmt(v.valor)} · {v.forma_pagamento === 'pix' ? '📱 Pix' : '💵 Dinheiro'} · <span style={{ color: C.gold }}>Vale</span></div>
+                  {v.obs && <div style={{ fontSize: 11, color: '#aaa' }}>{v.obs}</div>}
+                </div>
+                <div style={{ display: 'flex', gap: 6 }}>
+                  <button onClick={() => copy(v.id, texto)} style={{ ...S.btn(copied[v.id] ? '#22c55e' : C.gold), flex: 'none', padding: '8px 12px' }}>{copied[v.id] ? '✓' : '📋'}</button>
+                  <button onClick={() => updateVale(v.id, { lancado: !v.lancado })} style={{ ...S.btn(v.lancado ? '#22c55e' : '#e0d5c5'), flex: 'none', padding: '8px 12px', color: v.lancado ? '#fff' : '#666' }}>{v.lancado ? '✓' : '○'}</button>
+                </div>
+              </div>
+              <div style={{ marginTop: 6 }}>{v.lancado ? <Badge color="#22c55e">✓ Lançado</Badge> : <Badge color="#f59e0b">Não lançado</Badge>}</div>
+            </div>
+          )
+        })}
+      </>}
+
+      {/* DESPESAS */}
+      {todayDespesas.length > 0 && <>
+        <Divisor label="Despesas" cor={C.accent} qtd={todayDespesas.length} />
+        {todayDespesas.map(d => {
+          const texto = d.descricao
+          return (
+            <div key={d.id} style={{ ...S.card, borderColor: C.accent + '44' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div style={{ flex: 1 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 2 }}>
+                    <span style={{ fontSize: 16 }}>{d.categoria_emoji}</span>
+                    <span style={{ fontSize: 11, color: C.accent, fontWeight: 700 }}>{d.categoria_nome}</span>
+                  </div>
+                  <div style={{ fontFamily: 'monospace', fontSize: 13, color: '#2d2d2d' }}>{texto}</div>
+                  <div style={{ fontSize: 12, color: '#999', marginTop: 2 }}>{fmt(d.valor)} · 💵 Dinheiro</div>
+                  {!d.foto && d.obs && (
+                    <div style={{ fontSize: 11, color: C.gold, marginTop: 2, fontStyle: 'italic' }}>⚠ Sem nota · {d.obs}</div>
+                  )}
+                  {d.foto && d.obs && <div style={{ fontSize: 11, color: '#aaa', marginTop: 2 }}>{d.obs}</div>}
+                </div>
+                <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
+                  <button onClick={() => copy(d.id, texto)} style={{ ...S.btn(copied[d.id] ? '#22c55e' : C.accent), flex: 'none', padding: '8px 12px' }}>{copied[d.id] ? '✓' : '📋'}</button>
+                  <button onClick={() => updateDespesa(d.id, { lancado: !d.lancado })} style={{ ...S.btn(d.lancado ? '#22c55e' : '#e0d5c5'), flex: 'none', padding: '8px 12px', color: d.lancado ? '#fff' : '#666' }}>{d.lancado ? '✓' : '○'}</button>
+                </div>
+              </div>
+              {d.foto && (
+                <img src={d.foto} alt="Nota" onClick={() => window.open(d.foto, '_blank')}
+                  style={{ maxHeight: 60, marginTop: 8, border: '1px solid #e0d5c5', borderRadius: 6, cursor: 'pointer' }} />
+              )}
+              <div style={{ marginTop: 6 }}>{d.lancado ? <Badge color="#22c55e">✓ Lançado</Badge> : <Badge color="#f59e0b">Não lançado</Badge>}</div>
+            </div>
+          )
+        })}
+      </>}
     </div>
   )
 }
@@ -2586,8 +2714,14 @@ function TabConfig({ store, setModal }) {
       {/* Usuários */}
       <SecaoUsuarios />
 
+      {/* Categorias de Despesas */}
+      <SecaoCategorias store={store} />
+
       {/* Assinaturas */}
       <SecaoAssinaturas store={store} />
+
+      {/* Fotos de notas fiscais */}
+      <SecaoFotos store={store} />
 
       {/* Zona de perigo */}
       <div style={{ ...S.card, border: `1px solid ${C.danger}44`, background: '#1a0808' }}>
@@ -3290,6 +3424,7 @@ function TabVales({ store, today, setModal }) {
     <div>
       <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
         <button onClick={() => setModal({ type: 'addVale' })} style={{ ...S.btn(C.gold), flex: 1 }}>💸 Novo Vale</button>
+        <button onClick={() => setModal({ type: 'addDespesa' })} style={{ ...S.btn(C.accent), flex: 1 }}>🧾 Novo Lançamento</button>
       </div>
 
       {/* Sub-navegação */}
@@ -3678,6 +3813,337 @@ function ModalNovoVale({ store, today, onClose }) {
           <button onClick={save} disabled={salvando}
             style={{ ...S.btn(salvando ? C.textDim : C.gold), flex: 2, fontWeight: 700 }}>
             {salvando ? 'Salvando...' : forma === 'pix' ? '📱 Registrar e Enviar Pix' : '💸 Registrar Vale'}
+          </button>
+        </div>
+      </div>
+    </Modal>
+  )
+}
+
+// ─── SEÇÃO FOTOS DE NOTAS FISCAIS (Config) ───────────────────────────────────
+
+function SecaoFotos({ store }) {
+  const { despesas, updateDespesa } = store
+  const [periodo, setPeriodo] = useState(30)
+  const [modoLivre, setModoLivre] = useState(false)
+  const [dataDe, setDataDe] = useState(toDateStr(new Date()))
+  const [dataAte, setDataAte] = useState(toDateStr(new Date()))
+  const [limpando, setLimpando] = useState(false)
+  const [resultado, setResultado] = useState('')
+
+  const hoje = new Date()
+  const comFoto = despesas.filter(d => d.foto && d.foto.length > 0)
+  const totalKb = Math.round(comFoto.reduce((a, d) => a + (d.foto?.length || 0), 0) / 1024)
+
+  const aApagar = comFoto.filter(d => {
+    if (modoLivre) return d.data_op >= dataDe && d.data_op <= dataAte
+    const diff = Math.floor((hoje - new Date(d.data_op + 'T12:00:00')) / (1000 * 60 * 60 * 24))
+    return diff >= periodo
+  })
+
+  const limpar = async () => {
+    if (!confirm(`Apagar ${aApagar.length} foto(s)? O lançamento continua salvo.`)) return
+    setLimpando(true)
+    setResultado('')
+    for (const d of aApagar) await updateDespesa(d.id, { foto: null })
+    setLimpando(false)
+    setResultado(`✓ ${aApagar.length} foto${aApagar.length !== 1 ? 's' : ''} apagada${aApagar.length !== 1 ? 's' : ''}`)
+    setTimeout(() => setResultado(''), 4000)
+  }
+
+  return (
+    <div style={S.card}>
+      <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 12 }}>📷 Fotos de Notas Fiscais</div>
+      <div style={{ fontSize: 13, color: '#8a7355', marginBottom: 12 }}>
+        {comFoto.length} foto{comFoto.length !== 1 ? 's' : ''} salva{comFoto.length !== 1 ? 's' : ''} · ~{totalKb}kb no banco
+      </div>
+
+      <label style={S.label}>Apagar fotos mais antigas que</label>
+      <div style={{ display: 'flex', gap: 6, marginBottom: 10, flexWrap: 'wrap' }}>
+        {[7, 15, 30, 60, 90].map(d => (
+          <button key={d} onClick={() => { setPeriodo(d); setModoLivre(false) }}
+            style={{ padding: '6px 12px', border: `2px solid ${!modoLivre && periodo === d ? C.accent : C.border}`, borderRadius: 20, background: !modoLivre && periodo === d ? C.accent : '#fff', color: !modoLivre && periodo === d ? '#fff' : '#666', fontSize: 12, fontWeight: !modoLivre && periodo === d ? 700 : 400, cursor: 'pointer' }}>
+            {d} dias
+          </button>
+        ))}
+        <button onClick={() => setModoLivre(true)}
+          style={{ padding: '6px 12px', border: `2px solid ${modoLivre ? C.accent : C.border}`, borderRadius: 20, background: modoLivre ? C.accent : '#fff', color: modoLivre ? '#fff' : '#666', fontSize: 12, fontWeight: modoLivre ? 700 : 400, cursor: 'pointer' }}>
+          Livre
+        </button>
+      </div>
+
+      {modoLivre && (
+        <div style={{ marginBottom: 10 }}>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <div style={{ flex: 1 }}>
+              <label style={S.label}>De</label>
+              <input type="date" value={dataDe} onChange={e => setDataDe(e.target.value)} style={S.input} />
+            </div>
+            <div style={{ flex: 1 }}>
+              <label style={S.label}>Até</label>
+              <input type="date" value={dataAte} onChange={e => setDataAte(e.target.value)} style={S.input} />
+            </div>
+          </div>
+          <div style={{ fontSize: 11, color: C.textMuted, marginTop: 4 }}>
+            Fotos de lançamentos entre {dayLabel(dataDe)} e {dayLabel(dataAte)}.
+          </div>
+        </div>
+      )}
+
+      <div style={{ fontSize: 12, color: '#999', marginBottom: 12 }}>
+        {aApagar.length} foto{aApagar.length !== 1 ? 's' : ''} serão apagadas · o lançamento e a descrição ficam intactos
+      </div>
+
+      <button onClick={limpar} disabled={limpando || aApagar.length === 0}
+        style={{ ...S.btn(limpando || aApagar.length === 0 ? '#ccc' : C.danger), fontWeight: 700 }}>
+        {limpando ? 'Limpando...' : `🗑 Limpar ${aApagar.length} foto${aApagar.length !== 1 ? 's' : ''}`}
+      </button>
+
+      {resultado && (
+        <div style={{ marginTop: 10, fontSize: 13, color: '#22c55e', fontWeight: 600, textAlign: 'center' }}>{resultado}</div>
+      )}
+    </div>
+  )
+}
+
+// ─── SEÇÃO CATEGORIAS DE DESPESAS (Config) ───────────────────────────────────
+
+const EMOJIS_COMUNS = ['🛒','🎮','🔧','🧹','🚗','📦','💊','📝','🍺','🧃','🍖','🧂','🧊','💡','🔌','🪣','🧴','🛠️','🎯','📱','💰','🏪','🏬','🍕','☕','🥤','🧺','🪴','🔑','📋']
+
+function SecaoCategorias({ store }) {
+  const { addCategoria, removeCategoria } = store
+  const [cats, setCats] = useState([])
+  const [novoNome, setNovoNome] = useState('')
+  const [novoEmoji, setNovoEmoji] = useState('📝')
+  const [mostrarEmojis, setMostrarEmojis] = useState(false)
+
+  useEffect(() => {
+    const unsub = onSnapshot(collection(db, 'categorias_despesas'), s => {
+      setCats(s.docs.map(d => ({ id: d.id, ...d.data() })).sort((a,b) => a.nome.localeCompare(b.nome)))
+    })
+    return unsub
+  }, [])
+
+  const adicionar = async () => {
+    if (!novoNome.trim()) return alert('Digite o nome da categoria.')
+    await addCategoria({ emoji: novoEmoji, nome: novoNome.trim(), ativo: true })
+    setNovoNome(''); setNovoEmoji('📝'); setMostrarEmojis(false)
+  }
+
+  const remover = async (id, nome) => {
+    if (!confirm(`Remover categoria "${nome}"?`)) return
+    await removeCategoria(id)
+  }
+
+  return (
+    <div style={S.card}>
+      <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 12 }}>🏷️ Categorias de Despesas</div>
+
+      {cats.map(c => (
+        <div key={c.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 0', borderBottom: `1px solid ${C.border}` }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span style={{ fontSize: 20 }}>{c.emoji}</span>
+            <span style={{ fontSize: 14, fontWeight: 600 }}>{c.nome}</span>
+          </div>
+          <button onClick={() => remover(c.id, c.nome)}
+            style={{ background: 'none', border: 'none', color: '#ef4444', fontSize: 18, cursor: 'pointer' }}>🗑</button>
+        </div>
+      ))}
+
+      <div style={{ marginTop: 14 }}>
+        <label style={S.label}>Nova categoria</label>
+        <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
+          <button onClick={() => setMostrarEmojis(!mostrarEmojis)}
+            style={{ fontSize: 22, background: C.bgCard2, border: `1px solid ${C.border}`, borderRadius: 10, padding: '8px 12px', cursor: 'pointer' }}>
+            {novoEmoji}
+          </button>
+          <input value={novoNome} onChange={e => setNovoNome(e.target.value)}
+            style={{ ...S.input, flex: 1 }} placeholder="Nome da categoria..." />
+          <button onClick={adicionar} style={{ ...S.btn(C.primary), flex: 'none', padding: '10px 16px' }}>+</button>
+        </div>
+        {mostrarEmojis && (
+          <div style={{ background: C.bgCard2, border: `1px solid ${C.border}`, borderRadius: 12, padding: 12 }}>
+            <div style={{ fontSize: 11, color: C.textMuted, marginBottom: 8, fontWeight: 700 }}>Escolha um emoji</div>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+              {EMOJIS_COMUNS.map(e => (
+                <button key={e} onClick={() => { setNovoEmoji(e); setMostrarEmojis(false) }}
+                  style={{ fontSize: 22, background: novoEmoji === e ? C.primary + '22' : 'transparent', border: novoEmoji === e ? `2px solid ${C.primary}` : '2px solid transparent', borderRadius: 8, padding: '4px 6px', cursor: 'pointer' }}>
+                  {e}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+// ─── MODAL NOVA DESPESA ───────────────────────────────────────────────────────
+
+function comprimirFoto(file) {
+  return new Promise((resolve) => {
+    const reader = new FileReader()
+    reader.onload = (ev) => {
+      const img = new Image()
+      img.onload = () => {
+        const canvas = document.createElement('canvas')
+        const MAX = 800
+        let w = img.width, h = img.height
+        if (w > MAX) { h = Math.round(h * MAX / w); w = MAX }
+        if (h > MAX) { w = Math.round(w * MAX / h); h = MAX }
+        canvas.width = w; canvas.height = h
+        canvas.getContext('2d').drawImage(img, 0, 0, w, h)
+        resolve(canvas.toDataURL('image/jpeg', 0.6))
+      }
+      img.src = ev.target.result
+    }
+    reader.readAsDataURL(file)
+  })
+}
+
+function ModalNovaDespesa({ store, today, onClose }) {
+  const { setores, addDespesa, categorias } = store
+  const [descricao, setDescricao] = useState('')
+  const [categoriaId, setCategoriaId] = useState('')
+  const [setorId, setSetorId] = useState('')
+  const [valorDisplay, setValorDisplay] = useState('')
+  const [obs, setObs] = useState('')
+  const [foto, setFoto] = useState(null)
+  const [salvando, setSalvando] = useState(false)
+  const fotoRef = useRef(null)
+
+  const catSel = categorias.find(c => c.id === categoriaId)
+
+  const handleFoto = async (e) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    const comprimida = await comprimirFoto(file)
+    setFoto(comprimida)
+  }
+
+  const buildTexto = () => {
+    const cat = catSel ? `${catSel.emoji} ${catSel.nome}` : ''
+    return descricao.trim() || cat
+  }
+
+  const save = async () => {
+    if (!categoriaId) return alert('Selecione uma categoria.')
+    const v = parseCents(valorDisplay)
+    if (!v || v < 100) return alert('Informe um valor válido (mínimo R$1,00).')
+    if (!descricao.trim()) return alert('Descreva a despesa.')
+    if (!foto && !obs.trim()) return alert('Sem nota fiscal: adicione uma observação explicando o motivo.')
+    setSalvando(true)
+    try {
+      await addDespesa({
+        descricao:      descricao.trim(),
+        categoria_id:   categoriaId,
+        categoria_nome: catSel?.nome || '',
+        categoria_emoji:catSel?.emoji || '📝',
+        setor_id:       setorId,
+        data_op:        today,
+        data_real:      toDateStr(new Date()),
+        valor:          v,
+        obs:            obs.trim(),
+        foto:           foto || null,
+        lancado:        false,
+        criado_em:      new Date().toISOString(),
+      })
+      onClose()
+    } catch (err) { alert('Erro ao salvar. Tente novamente.'); console.error(err) }
+    setSalvando(false)
+  }
+
+  return (
+    <Modal title="🧾 Novo Lançamento" onClose={onClose}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+
+        {/* Categoria */}
+        <div>
+          <label style={S.label}>Categoria *</label>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+            {categorias.map(c => (
+              <button key={c.id} onClick={() => setCategoriaId(c.id)}
+                style={{ padding: '8px 12px', border: `2px solid ${categoriaId === c.id ? C.accent : C.border}`, borderRadius: 20, background: categoriaId === c.id ? C.accent + '22' : C.bgCard2, cursor: 'pointer', fontSize: 13, fontWeight: categoriaId === c.id ? 700 : 400, color: categoriaId === c.id ? C.accent : C.textMuted }}>
+                {c.emoji} {c.nome}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Descrição livre */}
+        <div>
+          <label style={S.label}>Descrição (texto do lançamento) *</label>
+          <input
+            value={descricao}
+            onChange={e => setDescricao(e.target.value)}
+            onFocus={e => { if (!descricao) setDescricao('') }}
+            style={S.input}
+            placeholder={catSel ? `${catSel.emoji} Compra de / Local...` : 'Descreva a despesa...'}
+          />
+          {descricao && (
+            <div style={{ fontSize: 11, color: C.textMuted, marginTop: 4, fontFamily: 'monospace' }}>
+              📋 {buildTexto()}
+            </div>
+          )}
+        </div>
+
+        {/* Valor + Setor */}
+        <div style={{ display: 'flex', gap: 8 }}>
+          <div style={{ flex: 1 }}>
+            <label style={S.label}>Valor *</label>
+            <input value={valorDisplay}
+              onChange={e => { const r = e.target.value.replace(/\D/g,''); setValorDisplay(r ? fmt(parseInt(r)) : '') }}
+              style={{ ...S.input, fontSize: 18, fontWeight: 700 }} placeholder="R$ 0,00" inputMode="numeric" />
+          </div>
+          <div style={{ flex: 1 }}>
+            <label style={S.label}>Setor</label>
+            <select value={setorId} onChange={e => setSetorId(e.target.value)} style={S.input}>
+              <option value="">—</option>
+              {setores.filter(s => s.ativo).map(s => <option key={s.id} value={s.id}>{s.nome}</option>)}
+            </select>
+          </div>
+        </div>
+
+        {/* Data — sempre hoje, sem retroativo */}
+        <div style={{ background: C.bgCard2, borderRadius: 10, padding: '10px 14px', border: `1px solid ${C.border}` }}>
+          <div style={{ fontSize: 12, color: C.textMuted }}>📅 Data: <strong>{dayLabel(today)}</strong> (hoje — saída imediata do caixa)</div>
+        </div>
+
+        {/* Foto da nota */}
+        <div>
+          <label style={S.label}>Nota fiscal / Comprovante</label>
+          {foto ? (
+            <div>
+              <img src={foto} alt="Nota" style={{ width: '100%', borderRadius: 10, border: `1px solid ${C.border}`, maxHeight: 200, objectFit: 'cover' }} />
+              <button onClick={() => setFoto(null)} style={{ background: 'none', border: 'none', color: '#999', fontSize: 12, cursor: 'pointer', marginTop: 4 }}>🗑 Remover foto</button>
+            </div>
+          ) : (
+            <div>
+              <input ref={fotoRef} type="file" accept="image/*" capture="environment" style={{ display: 'none' }} onChange={handleFoto} />
+              <button onClick={() => fotoRef.current?.click()}
+                style={{ ...S.btn(C.secondary, true), width: '100%' }}>
+                📷 Tirar foto da nota fiscal
+              </button>
+              <div style={{ fontSize: 11, color: C.gold, marginTop: 6 }}>⚠ Sem foto: observação será obrigatória</div>
+            </div>
+          )}
+        </div>
+
+        {/* Observação */}
+        <div>
+          <label style={{ ...S.label, color: !foto ? C.danger : C.textMuted }}>
+            Observação {!foto ? '(obrigatória sem foto) *' : '(opcional)'}
+          </label>
+          <input value={obs} onChange={e => setObs(e.target.value)} style={{ ...S.input, borderColor: !foto && !obs ? C.danger + '88' : C.border }}
+            placeholder={!foto ? 'Ex: não pediu nota fiscal, compra urgente...' : 'Detalhe adicional...'} />
+        </div>
+
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button onClick={onClose} style={{ ...S.btn(C.textDim, true) }}>Cancelar</button>
+          <button onClick={save} disabled={salvando}
+            style={{ ...S.btn(salvando ? C.textDim : C.accent), flex: 2, fontWeight: 700 }}>
+            {salvando ? 'Salvando...' : '🧾 Registrar Lançamento'}
           </button>
         </div>
       </div>
