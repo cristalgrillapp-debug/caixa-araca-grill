@@ -908,7 +908,7 @@ function ModalEditExtra({ store, extra, onClose }) {
 // ─── ABA PAGAMENTOS ───────────────────────────────────────────────────────────
 
 function TabPagamentos({ store, today, setModal }) {
-  const { extras, setores, pessoas, updateExtra, config } = store
+  const { extras, vales, despesas, setores, pessoas, updateExtra, config } = store
   const pendentes = useMemo(() => extras.filter(e => e.data_op === today && !e.pago).sort((a,b) => a.nome.localeCompare(b.nome)), [extras, today])
   const pagos = useMemo(() => extras.filter(e => e.data_op === today && e.pago).sort((a,b) => a.nome.localeCompare(b.nome)), [extras, today])
   const dinheiroTotal = useMemo(() => pendentes.filter(e => e.previsao !== 'pix').reduce((a, e) => a + e.valor_final, 0), [pendentes])
@@ -969,8 +969,8 @@ function TabPagamentos({ store, today, setModal }) {
 
       {pagos.length > 0 && (
         <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
-          <button onClick={() => imprimirRecibos(extras, pessoas, setores, config, 'dinheiro')} style={{ ...S.btn(C.success), flex: 1, fontSize: 13 }}>Imprimir Dinheiro</button>
-          <button onClick={() => imprimirRecibos(extras, pessoas, setores, config, 'pix')} style={{ ...S.btn(C.secondary), flex: 1, fontSize: 13 }}>Imprimir Pix</button>
+          <button onClick={() => imprimirRecibos(extras.filter(e=>e.data_op===today), vales.filter(v=>v.data_op===today), despesas.filter(d=>d.data_op===today), pessoas, setores, config, 'dinheiro')} style={{ ...S.btn(C.success), flex: 1, fontSize: 13 }}>Imprimir Dinheiro</button>
+          <button onClick={() => imprimirRecibos(extras.filter(e=>e.data_op===today), vales.filter(v=>v.data_op===today), despesas.filter(d=>d.data_op===today), pessoas, setores, config, 'pix')} style={{ ...S.btn(C.secondary), flex: 1, fontSize: 13 }}>Imprimir Pix</button>
         </div>
       )}
 
@@ -1444,7 +1444,7 @@ function TabLancamentos({ store, today }) {
                     <span style={{ fontSize: 11, color: C.accent, fontWeight: 700 }}>{d.categoria_nome}</span>
                   </div>
                   <div style={{ fontFamily: 'monospace', fontSize: 13, color: '#2d2d2d' }}>{texto}</div>
-                  <div style={{ fontSize: 12, color: '#999', marginTop: 2 }}>{fmt(d.valor)} · 💵 Dinheiro</div>
+                  <div style={{ fontSize: 12, color: '#999', marginTop: 2 }}>{fmt(d.valor)} · {d.forma_pagamento === 'pix' ? '📱 Pix' : '💵 Dinheiro'} · <span style={{ color: C.accent }}>Despesa</span></div>
                   {!d.foto && d.obs && (
                     <div style={{ fontSize: 11, color: C.gold, marginTop: 2, fontStyle: 'italic' }}>⚠ Sem nota · {d.obs}</div>
                   )}
@@ -4010,6 +4010,7 @@ function ModalNovaDespesa({ store, today, onClose }) {
   const [valorDisplay, setValorDisplay] = useState('')
   const [obs, setObs] = useState('')
   const [foto, setFoto] = useState(null)
+  const [forma, setForma] = useState('dinheiro')
   const [salvando, setSalvando] = useState(false)
   const fotoRef = useRef(null)
 
@@ -4036,18 +4037,19 @@ function ModalNovaDespesa({ store, today, onClose }) {
     setSalvando(true)
     try {
       await addDespesa({
-        descricao:      descricao.trim(),
-        categoria_id:   categoriaId,
-        categoria_nome: catSel?.nome || '',
-        categoria_emoji:catSel?.emoji || '📝',
-        setor_id:       setorId,
-        data_op:        today,
-        data_real:      toDateStr(new Date()),
-        valor:          v,
-        obs:            obs.trim(),
-        foto:           foto || null,
-        lancado:        false,
-        criado_em:      new Date().toISOString(),
+        descricao:       descricao.trim(),
+        categoria_id:    categoriaId,
+        categoria_nome:  catSel?.nome || '',
+        categoria_emoji: catSel?.emoji || '📝',
+        setor_id:        setorId,
+        data_op:         today,
+        data_real:       toDateStr(new Date()),
+        valor:           v,
+        forma_pagamento: forma,
+        obs:             obs.trim(),
+        foto:            foto || null,
+        lancado:         false,
+        criado_em:       new Date().toISOString(),
       })
       onClose()
     } catch (err) { alert('Erro ao salvar. Tente novamente.'); console.error(err) }
@@ -4108,6 +4110,18 @@ function ModalNovaDespesa({ store, today, onClose }) {
         {/* Data — sempre hoje, sem retroativo */}
         <div style={{ background: C.bgCard2, borderRadius: 10, padding: '10px 14px', border: `1px solid ${C.border}` }}>
           <div style={{ fontSize: 12, color: C.textMuted }}>📅 Data: <strong>{dayLabel(today)}</strong> (hoje — saída imediata do caixa)</div>
+        </div>
+
+        {/* Forma de pagamento */}
+        <div>
+          <label style={S.label}>Forma de pagamento</label>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button onClick={() => setForma('dinheiro')} style={{ flex: 1, padding: '12px', border: `2px solid ${forma === 'dinheiro' ? '#22c55e' : C.border}`, borderRadius: 10, background: forma === 'dinheiro' ? '#22c55e20' : C.bgCard2, cursor: 'pointer', fontSize: 13, fontWeight: 700, color: forma === 'dinheiro' ? '#22c55e' : C.textMuted }}>💵 Dinheiro</button>
+            <button onClick={() => setForma('pix')} style={{ flex: 1, padding: '12px', border: `2px solid ${forma === 'pix' ? '#3b82f6' : C.border}`, borderRadius: 10, background: forma === 'pix' ? '#3b82f620' : C.bgCard2, cursor: 'pointer', fontSize: 13, fontWeight: 700, color: forma === 'pix' ? '#3b82f6' : C.textMuted }}>📱 Pix</button>
+          </div>
+          {forma === 'pix' && (
+            <div style={{ fontSize: 11, color: C.secondary, marginTop: 6 }}>ℹ️ Use Pix quando a despesa foi paga fora do caixa e precisa ser registrada.</div>
+          )}
         </div>
 
         {/* Foto da nota */}
