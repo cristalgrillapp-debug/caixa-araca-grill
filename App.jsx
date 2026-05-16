@@ -510,7 +510,16 @@ function TabExtras({ store, today, setModal }) {
     const ontem = toDateStr(new Date(new Date(today + 'T12:00:00').getTime() - 86400000))
     const ontemExtras = extras.filter(e => e.data_op === ontem)
     if (ontemExtras.length === 0) return alert('Nenhum extra ontem para duplicar.')
+    
+    // Proteção contra duplicação: verifica se já existem extras de hoje
+    const todayExtras = extras.filter(e => e.data_op === today)
+    const pessoasJaDuplicadas = new Set(todayExtras.map(e => e.pessoa_id))
+    
+    let duplicados = 0
     for (const e of ontemExtras) {
+      // Pula se a pessoa já tem extra hoje (evita duplicação)
+      if (e.pessoa_id && pessoasJaDuplicadas.has(e.pessoa_id)) continue
+      
       const p = pessoas.find(x => x.id === e.pessoa_id)
       const val = p ? (isWeekend(today) ? p.val_sex_dom : p.val_seg_qui) : e.valor_original || e.valor_final
       // Cria explicitamente — nunca copia flags de pagamento do dia anterior
@@ -536,6 +545,47 @@ function TabExtras({ store, today, setModal }) {
         desconto_troco:  0,
         valor_pago:      0,
       })
+      duplicados++
+    }
+    alert(`✅ ${duplicados} extras duplicados com sucesso!`)
+  }
+  
+  const encerrarDia = async () => {
+    const todayExtras = extras.filter(e => e.data_op === today)
+    const pagos = todayExtras.filter(e => e.pago)
+    const pendentes = todayExtras.filter(e => !e.pago)
+    
+    if (pendentes.length > 0) {
+      const msg = `Existem ${pendentes.length} pagamento(s) pendente(s):\n\n${pendentes.map(e => `• ${e.nome}: ${fmt(e.valor_final)}`).join('\n')}\n\nDeseja continuar mesmo assim?`
+      if (!confirm(msg)) return
+    }
+    
+    if (pagos.length === 0) {
+      alert('Nenhum pagamento confirmado para encerrar.')
+      return
+    }
+    
+    const confirmacao = prompt(`Digite "ENCERRAR" para confirmar o encerramento do dia com ${pagos.length} pagamento(s) confirmado(s).`)
+    if (confirmacao !== 'ENCERRAR') return
+    
+    try {
+      // Usa batch para deletar todos os pagamentos confirmados do dia
+      const batch = writeBatch(db)
+      pagos.forEach(e => {
+        batch.delete(doc(db, 'extras', e.id))
+      })
+      await batch.commit()
+      
+      await registrarLog('encerramento_dia', {
+        data_op: today,
+        pagos_removidos: pagos.length,
+        pendentes_restantes: pendentes.length,
+      })
+      
+      alert(`✅ Dia encerrado! ${pagos.length} pagamento(s) removido(s).\n${pendentes.length} pendente(s) permanecerá(ão).`)
+    } catch (err) {
+      alert('Erro ao encerrar o dia. Tente novamente.')
+      console.error(err)
     }
   }
 
@@ -558,6 +608,9 @@ function TabExtras({ store, today, setModal }) {
         <button onClick={() => setModal({ type: 'addPessoa' })} style={{ ...S.btn(C.accent), flex: 2 }}>+ Pessoa</button>
         <button onClick={duplicar} style={{ ...S.btn(C.secondary, true), flex: 2 }}>📋 Duplicar</button>
       </div>
+      {extras.filter(e => e.data_op === today && e.pago).length > 0 && (
+        <button onClick={encerrarDia} style={{ ...S.btn(C.danger), width: '100%', marginBottom: 12 }}>🔒 Encerrar Dia</button>
+      )}
       <div style={{ ...S.card, background: 'linear-gradient(135deg,#1a1a2e,#2d2340)', color: '#fff' }}>
         <div style={{ fontSize: 11, color: '#c9a96e', textTransform: 'uppercase' }}>Total do Dia</div>
         <div style={{ fontSize: 28, fontWeight: 700, color: '#c9a96e' }}>{fmt(total)}</div>
@@ -1796,6 +1849,17 @@ function TabRelatorios({ store }) {
           📄 PDF
         </button>
       </div>
+
+      {/* Filtro de período */}
+      <div style={{ display: 'flex', gap: 4, marginBottom: 10, marginTop: 10, flexWrap: 'wrap' }}>
+        {[['hoje','Hoje'],['ontem','Ontem'],['semana','7 dias'],['mes','Mês'],['livre','Livre']].map(([id, label]) => (
+          <button key={id} onClick={() => setFiltro(id)}
+            style={{ padding: '6px 12px', border: `2px solid ${filtro === id ? C.primary : C.border}`, borderRadius: 20, background: filtro === id ? C.primary : C.bgCard, color: filtro === id ? '#fff' : C.textMuted, fontSize: 12, fontWeight: filtro === id ? 700 : 400, cursor: 'pointer' }}>
+            {label}
+          </button>
+        ))}
+      </div>
+
       {filtro === 'livre' && (
         <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
           <div style={{ flex: 1 }}><label style={S.label}>De</label><input type="date" value={dataInicio} onChange={e => setDataInicio(e.target.value)} style={S.input} /></div>
