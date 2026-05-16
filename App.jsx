@@ -3518,6 +3518,7 @@ function ModalNovoVale({ store, today, onClose }) {
   const [forma, setForma] = useState('dinheiro')
   const [obs, setObs] = useState('')
   const [assinatura, setAssinatura] = useState(null)
+  const [dataVale, setDataVale] = useState(today)
   const [step, setStep] = useState('form')
   const [salvando, setSalvando] = useState(false)
 
@@ -3534,7 +3535,7 @@ function ModalNovoVale({ store, today, onClose }) {
     let msg = `💸 VALE — ${pessoa?.nome || '?'}`
     if (funcao) msg += ` · ${funcao}`
     msg += `\nValor: ${fmt(v)}`
-    msg += `\nData: ${dayLabel(today)}`
+    msg += `\nData: ${dayLabel(dataVale)}`
     if (obs) msg += `\nObs: ${obs}`
     msg += `\n\nTipo da chave: ${pessoa?.tipo_pix || '—'}\n\nCHAVE PIX:\n${pessoa?.chave_pix || '—'}`
     return msg
@@ -3553,7 +3554,7 @@ function ModalNovoVale({ store, today, onClose }) {
         nome:            pessoa?.nome || '',
         funcao,
         setor_id:        setorId,
-        data_op:         today,
+        data_op:         dataVale,
         data_real:       toDateStr(new Date()),
         obs,
         valor:           v,
@@ -3618,6 +3619,22 @@ function ModalNovoVale({ store, today, onClose }) {
               {setores.filter(s => s.ativo).map(s => <option key={s.id} value={s.id}>{s.nome}</option>)}
             </select>
           </div>
+        </div>
+
+        <div>
+          <label style={S.label}>Data do vale</label>
+          <input
+            type="date"
+            value={dataVale}
+            max={today}
+            onChange={e => setDataVale(e.target.value)}
+            style={S.input}
+          />
+          {dataVale !== today && (
+            <div style={{ fontSize: 11, color: C.gold, marginTop: 4, fontWeight: 600 }}>
+              📅 Lançamento retroativo: {dayLabel(dataVale)}
+            </div>
+          )}
         </div>
 
         <div>
