@@ -1780,7 +1780,7 @@ function TabRelatorios({ store }) {
   const maxDia = Math.max(...porDiaSemana.map(d => d.total), 1)
 
   return (
-    <div>
+    <>
       {/* Header Dashboard */}
       <div style={{ ...S.card, background: 'linear-gradient(135deg,#1a1a2e,#2d2340)', color: '#fff', marginBottom: 12 }}>
         <div style={{ fontSize: 11, color: '#c9a96e', textTransform: 'uppercase', letterSpacing: '0.1em' }}>Dashboard Operacional</div>
@@ -1796,7 +1796,6 @@ function TabRelatorios({ store }) {
           📄 PDF
         </button>
       </div>
-    </div>
       {filtro === 'livre' && (
         <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
           <div style={{ flex: 1 }}><label style={S.label}>De</label><input type="date" value={dataInicio} onChange={e => setDataInicio(e.target.value)} style={S.input} /></div>
@@ -2030,11 +2029,7 @@ function TabRelatorios({ store }) {
           onClose={() => setPessoaSelecionada(null)}
         />
       )}
-    </div>
-  </div>
-  </div>
-  </div>
-  </div>
+    </>
   )
 }
 
