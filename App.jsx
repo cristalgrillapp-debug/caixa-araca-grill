@@ -547,17 +547,13 @@ function AppPrincipal({ usuario, onLogout }) {
   const store = { extras, vales, despesas, categorias, pessoas, setores, config, turnoAtivo, updateConfig, addExtra, updateExtra, removeExtra, addPessoa, updatePessoa, removePessoa, addSetor, updateSetor, removeSetor, addVale, updateVale, removeVale, addDespesa, updateDespesa, removeDespesa, addCategoria, updateCategoria, removeCategoria, usuario, onLogout, registrarLog }
 
   const tabs = [
-    { id: 'extras', icon: '👤', label: 'Extras' },
-    { id: 'pagamentos', icon: '💳', label: 'Pagamentos' },
-    { id: 'lancamentos', icon: '📋', label: 'Lançamentos' },
-    { id: 'vales', icon: '💸', label: 'Saídas' },
-    { id: 'relatorios', icon: '📊', label: 'Dashboard' },
+    { id: 'extras',    icon: '👤', label: 'Extras'     },
+    { id: 'caixa',     icon: '💳', label: 'Caixa'      },
+    { id: 'relatorios',icon: '📊', label: 'Relatórios' },
     ...(usuario?.role === 'admin' ? [{ id: 'config', icon: '⚙️', label: 'Config' }] : []),
-    ...(usuario?.role === 'admin' ? [{ id: 'importar', icon: '📥', label: 'Import' }] : []),
-    ...(usuario?.role === 'admin' ? [{ id: 'importar', icon: '📥', label: 'Import' }] : []),
   ]
 
-  const ABAS_BLOQUEADAS = ['extras','pagamentos','lancamentos','vales']
+  const ABAS_BLOQUEADAS = ['extras', 'caixa']
 
   return (
     <div style={S.app}>
@@ -612,12 +608,9 @@ function AppPrincipal({ usuario, onLogout }) {
         {(turnoAtivo || !ABAS_BLOQUEADAS.includes(tab)) && !carregandoTurno && (
           <>
             {tab === 'extras'      && <TabExtras store={store} today={today} setModal={setModal} />}
-            {tab === 'pagamentos'  && <TabPagamentos store={store} today={today} setModal={setModal} />}
-            {tab === 'lancamentos' && <TabLancamentos store={store} today={today} />}
-            {tab === 'vales'       && <TabVales store={store} today={today} setModal={setModal} />}
+            {tab === 'caixa'       && <TabCaixa store={store} today={today} setModal={setModal} />}
             {tab === 'relatorios'  && <TabRelatorios store={store} />}
             {tab === 'config'      && <TabConfig store={store} setModal={setModal} />}
-            {tab === 'importar'    && <TabImportarExtras14 db={db} store={store} />}
           </>
         )}
 
@@ -640,7 +633,7 @@ function AppPrincipal({ usuario, onLogout }) {
             }}>
             <span style={{ fontSize: 20, opacity: tab === t.id ? 1 : 0.45 }}>{t.icon}</span>
             <span style={{ fontSize: 9, color: tab === t.id ? C.primary : C.textDim, fontWeight: tab === t.id ? 800 : 500, fontFamily: 'inherit', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{t.label}</span>
-            {t.id === 'pagamentos' && extras.filter(e => e.data_op === today && !e.pago).length > 0 && (
+            {t.id === 'caixa' && extras.filter(e => e.data_op === today && !e.pago).length > 0 && (
               <span style={{ position: 'absolute', top: 6, right: '50%', marginRight: -18, background: C.danger, color: '#fff', borderRadius: 8, fontSize: 9, fontWeight: 800, padding: '1px 5px', minWidth: 16, textAlign: 'center' }}>
                 {extras.filter(e => e.data_op === today && !e.pago).length}
               </span>
@@ -969,6 +962,44 @@ function ModalEditExtra({ store, extra, onClose }) {
         </div>
       </div>
     </Modal>
+  )
+}
+
+// ─── ABA CAIXA (Pagamentos + Lançamentos + Saídas) ───────────────────────────
+
+function TabCaixa({ store, today, setModal }) {
+  const { extras } = store
+  const [subAba, setSubAba] = useState('pagamentos')
+  const pendentesCount = extras.filter(e => e.data_op === today && !e.pago).length
+
+  return (
+    <div>
+      <div style={{ display: 'flex', background: '#f0e8d8', padding: 4, borderRadius: 14, marginBottom: 14, gap: 4 }}>
+        {[
+          ['pagamentos', '💳 Pagamentos'],
+          ['lancamentos', '📋 Lançar'],
+          ['saidas',      '💸 Saídas'],
+        ].map(([id, label]) => (
+          <button key={id} onClick={() => setSubAba(id)}
+            style={{ flex: 1, padding: '9px 4px', border: 'none', borderRadius: 10, position: 'relative',
+              background: subAba === id ? '#fff' : 'transparent', cursor: 'pointer',
+              fontSize: 11, fontWeight: subAba === id ? 800 : 400,
+              color: subAba === id ? C.primary : '#999',
+              boxShadow: subAba === id ? '0 1px 4px rgba(0,0,0,0.08)' : 'none' }}>
+            {label}
+            {id === 'pagamentos' && pendentesCount > 0 && (
+              <span style={{ position: 'absolute', top: 4, right: 6, background: C.danger, color: '#fff',
+                borderRadius: 8, fontSize: 9, fontWeight: 800, padding: '1px 5px', minWidth: 16, textAlign: 'center' }}>
+                {pendentesCount}
+              </span>
+            )}
+          </button>
+        ))}
+      </div>
+      {subAba === 'pagamentos'  && <TabPagamentos store={store} today={today} setModal={setModal} />}
+      {subAba === 'lancamentos' && <TabLancamentos store={store} today={today} />}
+      {subAba === 'saidas'      && <TabVales store={store} today={today} setModal={setModal} />}
+    </div>
   )
 }
 
@@ -2051,7 +2082,7 @@ function PesquisaFuncionario({ store, extras, setores, from, to, config }) {
 
 function TabRelatorios({ store }) {
   const { extras, vales, despesas, pessoas, setores, config } = store
-  const [subTela, setSubTela] = useState('geral')
+  const [subTela, setSubTela] = useState('financeiro')
   const [pessoaSelecionada, setPessoaSelecionada] = useState(null)
   const today = todayOp(config)
 
@@ -2243,7 +2274,7 @@ function TabRelatorios({ store }) {
 
       {/* Sub-navegação */}
       <div style={{ display: 'flex', gap: 4, background: '#f0e8d8', padding: 4, borderRadius: 12, marginBottom: 14 }}>
-        {[['geral','🔴 Geral'],['equipe','👥 Equipe'],['turnos','🌙 Turnos'],['setores','📁 Setores']].map(([id, label]) => (
+        {[['financeiro','💰 Financeiro'],['equipe','👥 Equipe'],['analise','📋 Análise']].map(([id, label]) => (
           <button key={id} onClick={() => setSubTela(id)}
             style={{ flex: 1, padding: '8px 2px', border: 'none', borderRadius: 8, background: subTela === id ? '#fff' : 'transparent', cursor: 'pointer', fontSize: 11, fontWeight: subTela === id ? 700 : 400, color: subTela === id ? '#c9a96e' : '#999' }}>
             {label}
@@ -2251,8 +2282,8 @@ function TabRelatorios({ store }) {
         ))}
       </div>
 
-      {/* ─── GERAL ─── */}
-      {subTela === 'geral' && <>
+      {/* ─── FINANCEIRO ─── */}
+      {subTela === 'financeiro' && <>
         {/* Alertas */}
         {alertas.length > 0 && (
           <div style={{ marginBottom: 12 }}>
@@ -2393,7 +2424,8 @@ function TabRelatorios({ store }) {
       </>}
 
       {/* ─── TURNOS ─── */}
-      {subTela === 'turnos' && <>
+      {/* ─── ANÁLISE (Turnos + Setores) ─── */}
+      {subTela === 'analise' && <>
         <div style={S.card}>
           <div style={{ fontSize: 12, fontWeight: 700, color: '#8a7355', marginBottom: 12 }}>🌙 Custo por turno</div>
           {porTurno.map((t, i) => (
@@ -2436,7 +2468,7 @@ function TabRelatorios({ store }) {
       </>}
 
       {/* ─── SETORES ─── */}
-      {subTela === 'setores' && <>
+        <div style={{ fontSize: 12, fontWeight: 700, color: '#8a7355', marginBottom: 10, marginTop: 4 }}>📁 Por Setor</div>
         {porSetor.map(s => (
           <div key={s.nome} style={S.card}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
@@ -2852,19 +2884,16 @@ function SecaoAssinaturas({ store }) {
 
 function TabConfig({ store, setModal }) {
   const { setores, addSetor, updateSetor, removeSetor, pessoas, removePessoa, config, updateConfig } = store
+  const [subConfig, setSubConfig] = useState('geral')
   const [novoSetor, setNovoSetor] = useState('')
   const [nomeEstab, setNomeEstab] = useState(config.nome_estabelecimento)
   const [whatsapp, setWhatsapp] = useState(config.whatsapp_pix)
-  const [horaVirada, setHoraVirada] = useState(String(config.horario_virada_h).padStart(2, '0'))
-  const [minVirada, setMinVirada] = useState(String(config.horario_virada_m).padStart(2, '0'))
   const [savedMsg, setSavedMsg] = useState('')
 
   const salvarGeral = () => {
     updateConfig({
       nome_estabelecimento: nomeEstab.trim() || 'ARACÁ GRILL',
       whatsapp_pix: whatsapp.replace(/\D/g, ''),
-      horario_virada_h: Math.min(23, Math.max(0, parseInt(horaVirada) || 2)),
-      horario_virada_m: Math.min(59, Math.max(0, parseInt(minVirada) || 30)),
     })
     setSavedMsg('✓ Salvo!')
     setTimeout(() => setSavedMsg(''), 2500)
@@ -2872,131 +2901,140 @@ function TabConfig({ store, setModal }) {
 
   return (
     <div>
-      <div style={S.card}>
-        <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 14 }}>🏠 Estabelecimento</div>
-        <div style={{ marginBottom: 10 }}>
-          <label style={S.label}>Nome do estabelecimento</label>
-          <input value={nomeEstab} onChange={e => setNomeEstab(e.target.value)} style={S.input} placeholder="Ex: ARACÁ GRILL" />
-        </div>
-        <div style={{ marginBottom: 10 }}>
-          <label style={S.label}>WhatsApp para envio do Pix</label>
-          <input value={whatsapp} onChange={e => setWhatsapp(e.target.value)} style={S.input} placeholder="5518999999999" inputMode="numeric" />
-          <div style={{ fontSize: 11, color: '#999', marginTop: 4 }}>Com DDI+DDD, sem espaços. Ex: 5518996530959</div>
-        </div>
-        <div style={{ marginBottom: 14 }}>
-          <label style={S.label}>Horário de virada do dia operacional</label>
-          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-            <input value={horaVirada} onChange={e => setHoraVirada(e.target.value)} style={{ ...S.input, width: 64, textAlign: 'center' }} placeholder="02" inputMode="numeric" maxLength={2} />
-            <span style={{ fontWeight: 700, color: '#8a7355' }}>:</span>
-            <input value={minVirada} onChange={e => setMinVirada(e.target.value)} style={{ ...S.input, width: 64, textAlign: 'center' }} placeholder="30" inputMode="numeric" maxLength={2} />
-            <span style={{ fontSize: 12, color: '#999' }}>horas</span>
-          </div>
-          <div style={{ fontSize: 11, color: '#999', marginTop: 4 }}>Antes desse horário o sistema usa a data do dia anterior.</div>
-        </div>
-        <div style={{ marginBottom: 14 }}>
-          <label style={S.label}>Senha mestre de emergência</label>
-          <input
-            type="password"
-            value={config.senha_mestre || ''}
-            onChange={e => updateConfig({ senha_mestre: e.target.value })}
-            style={S.input}
-            placeholder="Deixe em branco para desativar"
-          />
-          <div style={{ fontSize: 11, color: C.textMuted, marginTop: 4 }}>
-            Com essa senha qualquer usuário consegue logar como admin de emergência.
-          </div>
-        </div>
-        <button onClick={salvarGeral} style={{ ...S.btn(savedMsg ? C.success : C.primary) }}>
-          {savedMsg || 'Salvar configurações'}
-        </button>
-      </div>
-
-      <div style={S.card}>
-        <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 12 }}>📁 Setores</div>
-        {setores.map(s => (
-          <div key={s.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 0', borderBottom: '1px solid #f0e8d8' }}>
-            <span style={{ fontSize: 14 }}>{s.nome}</span>
-            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-              <button onClick={() => updateSetor(s.id, { ativo: !s.ativo })}
-                style={{ background: 'none', border: `1px solid ${s.ativo ? '#22c55e' : '#ccc'}`, borderRadius: 6, padding: '3px 10px', fontSize: 11, color: s.ativo ? '#22c55e' : '#999', cursor: 'pointer', fontWeight: 600 }}>
-                {s.ativo ? 'Ativo' : 'Inativo'}
-              </button>
-              <button onClick={() => { if (confirm('Remover setor ' + s.nome + '?')) removeSetor(s.id) }}
-                style={{ background: 'none', border: 'none', color: '#ef4444', fontSize: 16, cursor: 'pointer' }}>🗑</button>
-            </div>
-          </div>
+      {/* Sub-navegação */}
+      <div style={{ display: 'flex', gap: 3, background: '#f0e8d8', padding: 4, borderRadius: 14, marginBottom: 14 }}>
+        {[['geral','🏠 Geral'],['pessoas','👥 Pessoas'],['operacional','📁 Operacional'],['dados','🗄️ Dados']].map(([id, label]) => (
+          <button key={id} onClick={() => setSubConfig(id)}
+            style={{ flex: 1, padding: '8px 2px', border: 'none', borderRadius: 10, background: subConfig === id ? '#fff' : 'transparent',
+              cursor: 'pointer', fontSize: 10, fontWeight: subConfig === id ? 800 : 400,
+              color: subConfig === id ? C.primary : '#999',
+              boxShadow: subConfig === id ? '0 1px 4px rgba(0,0,0,0.08)' : 'none' }}>
+            {label}
+          </button>
         ))}
-        <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
-          <input value={novoSetor} onChange={e => setNovoSetor(e.target.value)} style={{ ...S.input, flex: 1 }} placeholder="Novo setor..." />
-          <button onClick={() => { if (novoSetor.trim()) { addSetor({ nome: novoSetor.trim(), ativo: true }); setNovoSetor('') } }}
-            style={{ ...S.btn(C.primary), flex: 'none', padding: '10px 18px' }}>+</button>
-        </div>
       </div>
 
-      <div style={S.card}>
-        <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 12 }}>👥 Pessoas ({pessoas.length})</div>
-        {pessoas.length === 0 && <div style={{ fontSize: 13, color: '#999', textAlign: 'center', padding: 16 }}>Nenhuma pessoa cadastrada</div>}
-        {pessoas.map(p => (
-          <div key={p.id} style={{ padding: '10px 0', borderBottom: '1px solid #f0e8d8' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-              <div>
-                <div style={{ fontWeight: 600, fontSize: 14 }}>{p.nome}</div>
-                <div style={{ fontSize: 12, color: '#8a7355' }}>{p.funcao}</div>
-                <div style={{ fontSize: 12, color: '#8a7355' }}>Seg-Qui: {fmt(p.val_seg_qui)} · Sex-Dom: {fmt(p.val_sex_dom)}</div>
-                <div style={{ fontSize: 12, color: '#64748b' }}>{p.tipo_pix}: {p.chave_pix}</div>
-                {p.telefone ? <div style={{ fontSize: 12, color: '#3b82f6' }}>📱 {p.telefone}</div> : null}
-                {totalTrocos(p.trocos) > 0 && (
-                  <div style={{ fontSize: 11, color: '#ef4444', fontWeight: 600, marginTop: 2 }}>
-                    🔴 Troco pendente: {fmt(totalTrocos(p.trocos))}
-                    {(p.trocos || []).map((t, i) => (
-                      <span key={i} style={{ display: 'block', marginLeft: 8, fontWeight: 400 }}>• {dayLabel(t.data)}: {fmt(t.valor)}</span>
-                    ))}
+      {/* ─── GERAL ─── */}
+      {subConfig === 'geral' && (
+        <div>
+          <div style={S.card}>
+            <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 14 }}>🏠 Estabelecimento</div>
+            <div style={{ marginBottom: 10 }}>
+              <label style={S.label}>Nome do estabelecimento</label>
+              <input value={nomeEstab} onChange={e => setNomeEstab(e.target.value)} style={S.input} placeholder="Ex: ARACÁ GRILL" />
+            </div>
+            <div style={{ marginBottom: 14 }}>
+              <label style={S.label}>WhatsApp para envio do Pix</label>
+              <input value={whatsapp} onChange={e => setWhatsapp(e.target.value)} style={S.input} placeholder="5518999999999" inputMode="numeric" />
+              <div style={{ fontSize: 11, color: '#999', marginTop: 4 }}>Com DDI+DDD, sem espaços. Ex: 5518996530959</div>
+            </div>
+            <div style={{ marginBottom: 14 }}>
+              <label style={S.label}>Senha mestre de emergência</label>
+              <input type="password" value={config.senha_mestre || ''}
+                onChange={e => updateConfig({ senha_mestre: e.target.value })}
+                style={S.input} placeholder="Deixe em branco para desativar" />
+              <div style={{ fontSize: 11, color: C.textMuted, marginTop: 4 }}>
+                Com essa senha qualquer usuário consegue logar como admin de emergência.
+              </div>
+            </div>
+            <button onClick={salvarGeral} style={{ ...S.btn(savedMsg ? C.success : C.primary) }}>
+              {savedMsg || 'Salvar configurações'}
+            </button>
+          </div>
+          <div style={{ ...S.card, background: C.bgCard2, border: `1px solid ${C.border}` }}>
+            <div style={{ fontSize: 12, color: C.secondary, fontWeight: 700 }}>ℹ️ {config.nome_estabelecimento} v2.0</div>
+            <div style={{ fontSize: 12, color: C.textMuted }}>Sistema operacional de extras · Firebase Firestore</div>
+          </div>
+        </div>
+      )}
+
+      {/* ─── PESSOAS ─── */}
+      {subConfig === 'pessoas' && (
+        <div>
+          <div style={S.card}>
+            <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 12 }}>👤 Funcionários ({pessoas.length})</div>
+            {pessoas.length === 0 && <div style={{ fontSize: 13, color: '#999', textAlign: 'center', padding: 16 }}>Nenhuma pessoa cadastrada</div>}
+            {pessoas.map(p => (
+              <div key={p.id} style={{ padding: '10px 0', borderBottom: '1px solid #f0e8d8' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                  <div>
+                    <div style={{ fontWeight: 600, fontSize: 14 }}>{p.nome} {p.interno_casa ? '🏠' : ''}</div>
+                    <div style={{ fontSize: 12, color: '#8a7355' }}>{p.funcao}</div>
+                    <div style={{ fontSize: 12, color: '#8a7355' }}>Seg-Qui: {fmt(p.val_seg_qui)} · Sex-Dom: {fmt(p.val_sex_dom)}</div>
+                    <div style={{ fontSize: 12, color: '#64748b' }}>{p.tipo_pix}: {p.chave_pix}</div>
+                    {p.telefone ? <div style={{ fontSize: 12, color: '#3b82f6' }}>📱 {p.telefone}</div> : null}
+                    {totalTrocos(p.trocos) > 0 && (
+                      <div style={{ fontSize: 11, color: '#ef4444', fontWeight: 600, marginTop: 2 }}>
+                        🔴 Troco pendente: {fmt(totalTrocos(p.trocos))}
+                        {(p.trocos || []).map((t, i) => (
+                          <span key={i} style={{ display: 'block', marginLeft: 8, fontWeight: 400 }}>• {dayLabel(t.data)}: {fmt(t.valor)}</span>
+                        ))}
+                      </div>
+                    )}
                   </div>
-                )}
+                  <div style={{ display: 'flex', gap: 6 }}>
+                    <button onClick={() => setModal({ type: 'editPessoa', pessoa: p })}
+                      style={{ background: 'none', border: '1px solid #c9a96e', borderRadius: 6, padding: '4px 10px', fontSize: 12, color: '#c9a96e', cursor: 'pointer' }}>✏️</button>
+                    <button onClick={() => { if (confirm('Remover ' + p.nome + '?')) removePessoa(p.id) }}
+                      style={{ background: 'none', border: 'none', color: '#ef4444', fontSize: 18, cursor: 'pointer' }}>🗑</button>
+                  </div>
+                </div>
               </div>
-              <div style={{ display: 'flex', gap: 6 }}>
-                <button onClick={() => setModal({ type: 'editPessoa', pessoa: p })}
-                  style={{ background: 'none', border: '1px solid #c9a96e', borderRadius: 6, padding: '4px 10px', fontSize: 12, color: '#c9a96e', cursor: 'pointer' }}>✏️</button>
-                <button onClick={() => { if (confirm('Remover ' + p.nome + '?')) removePessoa(p.id) }}
-                  style={{ background: 'none', border: 'none', color: '#ef4444', fontSize: 18, cursor: 'pointer' }}>🗑</button>
+            ))}
+            <button onClick={() => setModal({ type: 'addPessoa' })} style={{ ...S.btn(C.accent), marginTop: 12 }}>+ Nova Pessoa</button>
+          </div>
+          <SecaoUsuarios />
+        </div>
+      )}
+
+      {/* ─── OPERACIONAL ─── */}
+      {subConfig === 'operacional' && (
+        <div>
+          <div style={S.card}>
+            <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 12 }}>📁 Setores</div>
+            {setores.map(s => (
+              <div key={s.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 0', borderBottom: '1px solid #f0e8d8' }}>
+                <span style={{ fontSize: 14 }}>{s.nome}</span>
+                <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                  <button onClick={() => updateSetor(s.id, { ativo: !s.ativo })}
+                    style={{ background: 'none', border: `1px solid ${s.ativo ? '#22c55e' : '#ccc'}`, borderRadius: 6, padding: '3px 10px', fontSize: 11, color: s.ativo ? '#22c55e' : '#999', cursor: 'pointer', fontWeight: 600 }}>
+                    {s.ativo ? 'Ativo' : 'Inativo'}
+                  </button>
+                  <button onClick={() => { if (confirm('Remover setor ' + s.nome + '?')) removeSetor(s.id) }}
+                    style={{ background: 'none', border: 'none', color: '#ef4444', fontSize: 16, cursor: 'pointer' }}>🗑</button>
+                </div>
               </div>
+            ))}
+            <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
+              <input value={novoSetor} onChange={e => setNovoSetor(e.target.value)} style={{ ...S.input, flex: 1 }} placeholder="Novo setor..." />
+              <button onClick={() => { if (novoSetor.trim()) { addSetor({ nome: novoSetor.trim(), ativo: true }); setNovoSetor('') } }}
+                style={{ ...S.btn(C.primary), flex: 'none', padding: '10px 18px' }}>+</button>
             </div>
           </div>
-        ))}
-        <button onClick={() => setModal({ type: 'addPessoa' })} style={{ ...S.btn(C.accent), marginTop: 12 }}>+ Nova Pessoa</button>
-      </div>
-
-      {/* Usuários */}
-      <SecaoUsuarios />
-
-      {/* Categorias de Despesas */}
-      <SecaoCategorias store={store} />
-
-      {/* Assinaturas */}
-      <SecaoAssinaturas store={store} />
-
-      {/* Fotos de notas fiscais */}
-      <SecaoFotos store={store} />
-
-      {/* Zona de perigo */}
-      <div style={{ ...S.card, border: `1px solid ${C.danger}44`, background: '#1a0808' }}>
-        <div style={{ fontSize: 14, fontWeight: 800, color: C.danger, marginBottom: 14 }}>⚠️ Zona de Perigo</div>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-          <button onClick={() => setModal({ type: 'redefinirSenha' })}
-            style={{ ...S.btn(C.gold, true), textAlign: 'left', padding: '12px 16px' }}>
-            🔑 Redefinir senha de usuário
-          </button>
-          <button onClick={() => setModal({ type: 'limparBanco' })}
-            style={{ ...S.btn(C.danger, true), textAlign: 'left', padding: '12px 16px' }}>
-            🗑 Limpar banco de dados
-          </button>
+          <SecaoCategorias store={store} />
         </div>
-      </div>
+      )}
 
-      <div style={{ ...S.card, background: C.bgCard2, border: `1px solid ${C.border}` }}>
-        <div style={{ fontSize: 12, color: C.secondary, fontWeight: 700 }}>ℹ️ {config.nome_estabelecimento} v2.0</div>
-        <div style={{ fontSize: 12, color: C.textMuted }}>Sistema operacional de extras · Firebase Firestore</div>
-      </div>
+      {/* ─── DADOS ─── */}
+      {subConfig === 'dados' && (
+        <div>
+          <SecaoAssinaturas store={store} />
+          <SecaoFotos store={store} />
+          <div style={{ ...S.card, border: `1px solid ${C.danger}44`, background: '#1a0808' }}>
+            <div style={{ fontSize: 14, fontWeight: 800, color: C.danger, marginBottom: 14 }}>⚠️ Zona de Perigo</div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+              <button onClick={() => setModal({ type: 'redefinirSenha' })}
+                style={{ ...S.btn(C.gold, true), textAlign: 'left', padding: '12px 16px' }}>
+                🔑 Redefinir senha de usuário
+              </button>
+              <button onClick={() => setModal({ type: 'limparBanco' })}
+                style={{ ...S.btn(C.danger, true), textAlign: 'left', padding: '12px 16px' }}>
+                🗑 Limpar banco de dados
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
@@ -4743,129 +4781,5 @@ function ModalNovaDespesa({ store, today, onClose }) {
         </div>
       </div>
     </Modal>
-  )
-}
-
-// ─── IMPORTADOR EXTRAS 16/05 (TEMPORÁRIO) ────────────────────────────────────
-
-function TabImportarExtras14({ db, store }) {
-  const { setores, pessoas } = store
-  const [status, setStatus] = useState('idle')
-  const [log, setLog] = useState([])
-
-  const EXTRAS = [
-    { nome:'JOAO GABRIEL',     funcao:'MÚSICO',      turnos:'TN',    setor_nome:'Música',      valor:40000, forma:'dinheiro' },
-    { nome:'AMANDA OLIVEIRA',  funcao:'AUX BAR',     turnos:'TN',    setor_nome:'Bar',         valor:6000,  forma:'dinheiro' },
-    { nome:'MARTA FERREIRA',   funcao:'COZINHEIRA',  turnos:'TD',    setor_nome:'Cozinha',     valor:12000, forma:'pix'      },
-    { nome:'CAMILA NEVES',     funcao:'AUX COZ',     turnos:'TD',    setor_nome:'Cozinha',     valor:10000, forma:'dinheiro' },
-    { nome:'KAIO AREVALO',     funcao:'GARCOM',      turnos:'TD',    setor_nome:'Atendimento', valor:8000,  forma:'dinheiro' },
-    { nome:'STEPHANI MARQUES', funcao:'CAIXA',       turnos:'TD+TN', setor_nome:'Caixa',       valor:16000, forma:'dinheiro' },
-    { nome:'PERLA GOMES',      funcao:'AUX COZ',     turnos:'TD+TN', setor_nome:'Cozinha',     valor:20000, forma:'dinheiro' },
-    { nome:'CAIO HENRIQUE',    funcao:'CUMIM',       turnos:'TN',    setor_nome:'Cumim',       valor:10000, forma:'dinheiro' },
-    { nome:'FABINHO',          funcao:'MÚSICO',      turnos:'TD',    setor_nome:'Música',      valor:20000, forma:'dinheiro' },
-    { nome:'RENATO NERIS',     funcao:'BAR',         turnos:'TD',    setor_nome:'Bar',         valor:10000, forma:'dinheiro' },
-    { nome:'RONALDO SOARES',   funcao:'AUX COZ',     turnos:'TN',    setor_nome:'Cozinha',     valor:10000, forma:'dinheiro' },
-    { nome:'ANA LAURA',        funcao:'KIDS',        turnos:'TN',    setor_nome:'Kids',        valor:8000,  forma:'dinheiro' },
-    { nome:'PATRICIA KIILL',   funcao:'AUX COZINHA', turnos:'TD+TN', setor_nome:'Cozinha',     valor:20000, forma:'dinheiro' },
-    { nome:'JOSE MORAES',      funcao:'AUX COZ',     turnos:'TN',    setor_nome:'Cozinha',     valor:10000, forma:'pix'      },
-  ]
-
-  const importar = async () => {
-    if (!confirm('Importar os 14 extras do dia 16/05?\nTotal: R$ 2.000,00')) return
-    setStatus('importando')
-    setLog([])
-    try {
-      const agora = new Date().toISOString()
-      const setMap = {}
-      setores.forEach(s => { setMap[s.nome] = s.id })
-      const pesMap = {}
-      pessoas.forEach(p => { pesMap[p.nome?.toUpperCase()] = p.id })
-
-      for (const e of EXTRAS) {
-        await addDoc(collection(db, 'extras'), {
-          pessoa_id:          pesMap[e.nome.toUpperCase()] || null,
-          nome:               e.nome,
-          funcao:             e.funcao,
-          turnos:             e.turnos,
-          setor_id:           setMap[e.setor_nome] || null,
-          obs:                '',
-          data_op:            '2026-05-16',
-          data_real:          '2026-05-16',
-          valor_extra:        e.valor,
-          valor_original:     e.valor,
-          valor_final:        e.valor,
-          valor_pago:         e.valor,
-          desconto_troco:     0,
-          troco_gerado:       0,
-          pago:               true,
-          forma_pagamento:    e.forma,
-          lancado:            false,
-          encerrado:          true,
-          data_encerramento:  agora,
-          trocos_descontados: [],
-          assinatura:         null,
-          previsao:           e.forma,
-          importado:          true,
-          importado_em:       agora,
-        })
-        setLog(p => [...p, '✓ ' + e.nome + ' — ' + fmt(e.valor) + ' (' + e.forma + ')'])
-      }
-      setStatus('feito')
-    } catch (err) {
-      setLog(p => [...p, '❌ Erro: ' + err.message])
-      setStatus('erro')
-    }
-  }
-
-  return (
-    <div style={{ padding: 4 }}>
-      <div style={{ background: '#1a0808', border: '1px solid #a8322844', borderRadius: 14, padding: 16, marginBottom: 14 }}>
-        <div style={{ fontSize: 15, fontWeight: 800, color: '#fca5a5' }}>📥 Restaurar Extras — 16/05</div>
-        <div style={{ fontSize: 12, color: '#ff6b6b80', marginTop: 4 }}>14 extras · R$ 2.000,00 · Remova esta aba após importar.</div>
-      </div>
-
-      {/* Lista prévia */}
-      {status === 'idle' && (
-        <div style={{ background: '#f7f6f3', borderRadius: 12, padding: 14, marginBottom: 14, border: '1px solid #e4ddd4' }}>
-          {EXTRAS.map((e, i) => (
-            <div key={i} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, padding: '4px 0', borderBottom: '1px solid #f0e8d8' }}>
-              <span style={{ color: '#333' }}>{e.nome} · {e.funcao} {e.turnos}</span>
-              <span style={{ fontWeight: 700, color: e.forma === 'pix' ? '#3b82f6' : '#22c55e' }}>{fmt(e.valor)}</span>
-            </div>
-          ))}
-          <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 800, fontSize: 14, paddingTop: 8, marginTop: 4, borderTop: '2px solid #e4ddd4' }}>
-            <span>Total</span><span style={{ color: '#b5763a' }}>{fmt(200000)}</span>
-          </div>
-        </div>
-      )}
-
-      {status === 'idle' && (
-        <button onClick={importar}
-          style={{ ...S.btn(C.success), width: '100%', fontSize: 16, fontWeight: 900, padding: '16px' }}>
-          📥 Importar 14 Extras
-        </button>
-      )}
-
-      {status === 'importando' && (
-        <div style={{ textAlign: 'center', padding: 24, color: C.primary, fontWeight: 700, fontSize: 15 }}>⏳ Importando...</div>
-      )}
-
-      {log.length > 0 && (
-        <div style={{ background: '#0d1f14', borderRadius: 12, padding: 14, marginTop: 14, maxHeight: 320, overflowY: 'auto' }}>
-          {log.map((l, i) => (
-            <div key={i} style={{ fontFamily: 'monospace', fontSize: 12, color: l.startsWith('❌') ? '#fca5a5' : '#6ee7b7', marginBottom: 3 }}>{l}</div>
-          ))}
-        </div>
-      )}
-
-      {status === 'feito' && (
-        <div style={{ marginTop: 14, background: '#0d1f14', border: '1px solid #22c55e44', borderRadius: 12, padding: 16, textAlign: 'center' }}>
-          <div style={{ fontSize: 16, fontWeight: 800, color: '#22c55e' }}>✅ 14 extras restaurados!</div>
-          <div style={{ fontSize: 12, color: '#6ee7b7', marginTop: 6, lineHeight: 1.6 }}>
-            Verifique no Dashboard → filtro 16/05.<br/>Depois remova a aba "Import" do App.jsx.
-          </div>
-        </div>
-      )}
-    </div>
   )
 }
