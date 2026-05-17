@@ -5081,6 +5081,8 @@ function ModalNovaDespesa({ store, today, onClose }) {
   const fotoRef = useRef(null)
   const galeriaRef = useRef(null)
 
+  const catSel = categorias.find(c => c.id === categoriaId)
+
   // Ordenação inteligente: favorita → mais usada nos últimos 30 dias → ordem
   const catsOrdenadas = useMemo(() => {
     const trinta = toDateStr(new Date(new Date().getTime() - 30 * 86400000))
