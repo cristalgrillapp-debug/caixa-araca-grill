@@ -2,6 +2,7 @@ import { imprimirRecibos } from './impressao'
 import { useState, useEffect, useRef, useMemo } from 'react'
 import { db } from './firebase'
 import { collection, addDoc, updateDoc, setDoc, doc, onSnapshot, deleteDoc, runTransaction, getDoc, query, where, orderBy, limit, getDocs, writeBatch } from 'firebase/firestore'
+import Dashboard from './Dashboard'
 
 const fmt = (cents) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format((cents || 0) / 100)
 const parseCents = (str) => parseInt(String(str).replace(/\D/g, '') || '0', 10)
@@ -547,9 +548,10 @@ function AppPrincipal({ usuario, onLogout }) {
   const store = { extras, vales, despesas, categorias, pessoas, setores, config, turnoAtivo, updateConfig, addExtra, updateExtra, removeExtra, addPessoa, updatePessoa, removePessoa, addSetor, updateSetor, removeSetor, addVale, updateVale, removeVale, addDespesa, updateDespesa, removeDespesa, addCategoria, updateCategoria, removeCategoria, usuario, onLogout, registrarLog }
 
   const tabs = [
-    { id: 'extras',    icon: '👤', label: 'Extras'     },
-    { id: 'caixa',     icon: '💳', label: 'Caixa'      },
-    { id: 'relatorios',icon: '📊', label: 'Relatórios' },
+    { id: 'extras',    icon: '👤', label: 'Extras'      },
+    { id: 'caixa',     icon: '💳', label: 'Caixa'       },
+    { id: 'relatorios',icon: '📋', label: 'Relatórios'  },
+    { id: 'dashboard', icon: '📊', label: 'Dashboard'   },
     ...(usuario?.role === 'admin' ? [{ id: 'config', icon: '⚙️', label: 'Config' }] : []),
   ]
 
@@ -609,7 +611,8 @@ function AppPrincipal({ usuario, onLogout }) {
           <>
             {tab === 'extras'      && <TabExtras store={store} today={today} setModal={setModal} />}
             {tab === 'caixa'       && <TabCaixa store={store} today={today} setModal={setModal} />}
-            {tab === 'relatorios'  && <TabRelatorios store={store} />}
+            {tab === 'relatorios'  && <TabRelatoriosCentral store={store} today={today} />}
+            {tab === 'dashboard'   && <Dashboard store={store} />}
             {tab === 'config'      && <TabConfig store={store} setModal={setModal} />}
           </>
         )}
@@ -1071,13 +1074,6 @@ function TabPagamentos({ store, today, setModal }) {
           </div>
         </div>
       </div>
-
-      {pagos.length > 0 && (
-        <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
-          <button onClick={() => imprimirRecibos(extras.filter(e=>e.data_op===today), vales.filter(v=>v.data_op===today), despesas.filter(d=>d.data_op===today), pessoas, setores, config, 'dinheiro')} style={{ ...S.btn(C.success), flex: 1, fontSize: 13 }}>Imprimir Dinheiro</button>
-          <button onClick={() => imprimirRecibos(extras.filter(e=>e.data_op===today), vales.filter(v=>v.data_op===today), despesas.filter(d=>d.data_op===today), pessoas, setores, config, 'pix')} style={{ ...S.btn(C.secondary), flex: 1, fontSize: 13 }}>Imprimir Pix</button>
-        </div>
-      )}
 
       {pendentes.length === 0 && (
         <div style={{ ...S.card, textAlign: 'center', padding: 32 }}>
@@ -2080,6 +2076,325 @@ function PesquisaFuncionario({ store, extras, setores, from, to, config }) {
 }
 
 
+// ─── ABA RELATÓRIOS CENTRAL ──────────────────────────────────────────────────
+
+function TabRelatoriosCentral({ store, today }) {
+  const { extras, vales, despesas, pessoas, setores, config } = store
+  const [cat, setCat] = useState('financeiro')
+
+  const [filtro, setFiltro]         = useState('semana')
+  const [dataInicio, setDataInicio] = useState(today)
+  const [dataFim, setDataFim]       = useState(today)
+
+  const ontem      = toDateStr(new Date(new Date(today+'T12:00:00').getTime()-86400000))
+  const weekStart  = toDateStr(new Date(new Date(today+'T12:00:00').setDate(new Date(today+'T12:00:00').getDate()-6)))
+  const monthStart = today.slice(0,7)+'-01'
+  const ranges     = { hoje:[today,today], ontem:[ontem,ontem], semana:[weekStart,today], mes:[monthStart,today], livre:[dataInicio,dataFim] }
+  const [from, to] = ranges[filtro]||[weekStart,today]
+
+  const pagos        = useMemo(()=>extras.filter(e=>e.pago&&e.data_op>=from&&e.data_op<=to),[extras,from,to])
+  const valesPeriodo = useMemo(()=>(vales||[]).filter(v=>v.data_op>=from&&v.data_op<=to),[vales,from,to])
+  const despPeriodo  = useMemo(()=>(despesas||[]).filter(d=>d.data_op>=from&&d.data_op<=to),[despesas,from,to])
+
+  const totalExtras   = pagos.reduce((a,e)=>a+e.valor_final,0)
+  const totalVales    = valesPeriodo.reduce((a,v)=>a+v.valor,0)
+  const totalDespesas = despPeriodo.reduce((a,d)=>a+d.valor,0)
+  const totalCusto    = totalExtras+totalVales+totalDespesas
+
+  const agrupadoVales = useMemo(()=>{
+    const map={}
+    valesPeriodo.forEach(v=>{
+      if(!map[v.nome])map[v.nome]={nome:v.nome,funcao:v.funcao||'',total:0,vales:[]}
+      map[v.nome].total+=v.valor;map[v.nome].vales.push(v)
+    })
+    return Object.values(map).sort((a,b)=>b.total-a.total)
+  },[valesPeriodo])
+
+  const FiltroBar = () => (
+    <div style={{marginBottom:14}}>
+      <div style={{display:'flex',gap:4,flexWrap:'wrap',marginBottom:filtro==='livre'?8:0}}>
+        {[['hoje','Hoje'],['ontem','Ontem'],['semana','7 dias'],['mes','Mês'],['livre','Livre']].map(([id,label])=>(
+          <button key={id} onClick={()=>setFiltro(id)}
+            style={{padding:'6px 12px',border:`1px solid ${filtro===id?C.primary:C.border}`,borderRadius:16,
+              background:filtro===id?C.primary:'transparent',color:filtro===id?'#fff':C.textMuted,
+              fontSize:11,cursor:'pointer',fontWeight:filtro===id?700:400}}>
+            {label}
+          </button>
+        ))}
+      </div>
+      {filtro==='livre'&&(
+        <div style={{display:'flex',gap:8,alignItems:'center'}}>
+          <input type="date" value={dataInicio} onChange={e=>setDataInicio(e.target.value)} style={{...S.input,flex:1}}/>
+          <span style={{color:C.textMuted}}>→</span>
+          <input type="date" value={dataFim} onChange={e=>setDataFim(e.target.value)} style={{...S.input,flex:1}}/>
+        </div>
+      )}
+    </div>
+  )
+
+  return (
+    <div>
+      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:6,marginBottom:14}}>
+        {[['financeiro','💰','Financeiro'],['equipe','👥','Equipe'],['operacional','📋','Operacional'],['inteligentes','📊','Inteligentes']].map(([id,icon,label])=>(
+          <button key={id} onClick={()=>setCat(id)}
+            style={{padding:'12px 8px',border:`1px solid ${cat===id?C.primary:C.border}`,borderRadius:12,
+              background:cat===id?C.primary:'transparent',cursor:'pointer',textAlign:'center',
+              display:'flex',flexDirection:'column',alignItems:'center',gap:4}}>
+            <span style={{fontSize:20}}>{icon}</span>
+            <span style={{fontSize:11,fontWeight:cat===id?800:500,color:cat===id?'#fff':C.textMuted}}>{label}</span>
+          </button>
+        ))}
+      </div>
+
+      {cat==='financeiro'&&(
+        <div>
+          <FiltroBar/>
+          <div style={{...S.card,background:'linear-gradient(135deg,#1a1200,#2d2000)',color:'#fff',marginBottom:12}}>
+            <div style={{fontSize:11,color:'#c9a96e80',textTransform:'uppercase'}}>Total do período</div>
+            <div style={{fontSize:28,fontWeight:700,color:'#c9a96e'}}>{fmt(totalCusto)}</div>
+            <div style={{display:'flex',gap:12,marginTop:6}}>
+              <span style={{fontSize:11,color:'#ffffff70'}}>💼 {fmt(totalExtras)}</span>
+              <span style={{fontSize:11,color:'#ffffff70'}}>💸 {fmt(totalVales)}</span>
+              <span style={{fontSize:11,color:'#ffffff70'}}>🧾 {fmt(totalDespesas)}</span>
+            </div>
+          </div>
+          <div style={{...S.card,marginBottom:12}}>
+            <div style={{fontSize:13,fontWeight:700,color:C.text,marginBottom:6}}>🖨️ Recibos do turno (80mm)</div>
+            <div style={{fontSize:11,color:C.textMuted,marginBottom:10}}>Separados por forma de pagamento</div>
+            <div style={{display:'flex',gap:8}}>
+              <button onClick={()=>imprimirRecibos(extras.filter(e=>e.data_op===today),vales.filter(v=>v.data_op===today),despesas.filter(d=>d.data_op===today),pessoas,setores,config,'dinheiro')}
+                style={{...S.btn(C.success),flex:1}}>💵 Dinheiro</button>
+              <button onClick={()=>imprimirRecibos(extras.filter(e=>e.data_op===today),vales.filter(v=>v.data_op===today),despesas.filter(d=>d.data_op===today),pessoas,setores,config,'pix')}
+                style={{...S.btn(C.secondary),flex:1}}>📱 Pix</button>
+            </div>
+          </div>
+          <div style={{...S.card,marginBottom:12}}>
+            <div style={{fontSize:13,fontWeight:700,color:C.text,marginBottom:6}}>📄 PDF completo de saídas</div>
+            <div style={{fontSize:11,color:C.textMuted,marginBottom:10}}>Extras + vales + despesas do período</div>
+            <button onClick={()=>exportarRelatorioCompleto(pagos,valesPeriodo,despPeriodo,pessoas,setores,config,from,to)}
+              style={{...S.btn(C.primary),width:'100%'}}>📤 Exportar PDF completo</button>
+          </div>
+          <div style={S.card}>
+            <div style={{fontSize:13,fontWeight:700,color:C.text,marginBottom:12}}>💸 Vales do período</div>
+            <RelatorioValesCompacto vales={valesPeriodo} agrupado={agrupadoVales} from={from} to={to} config={config}/>
+          </div>
+        </div>
+      )}
+
+      {cat==='equipe'&&(
+        <div>
+          <FiltroBar/>
+          <div style={{display:'flex',gap:8,marginBottom:12}}>
+            <button onClick={()=>exportarExcel(pagos,pessoas,setores,config,from,to)}
+              style={{...S.btn(C.success),flex:1}}>📊 Excel extras</button>
+            <button onClick={()=>exportarPDF(pagos,pessoas,setores,config,from,to)}
+              style={{...S.btn(C.danger,true),flex:1}}>📄 PDF extras</button>
+          </div>
+          <PesquisaFuncionario store={store} extras={extras} setores={setores} from={from} to={to} config={config}/>
+        </div>
+      )}
+
+      {cat==='operacional'&&(
+        <div>
+          <FiltroBar/>
+          <div style={{...S.card,marginBottom:12}}>
+            <div style={{fontSize:13,fontWeight:700,color:C.text,marginBottom:12}}>🔍 Pesquisa de vales e despesas</div>
+            <PesquisaValeDespesa vales={valesPeriodo} despesas={despPeriodo} setores={setores} pessoas={pessoas}/>
+          </div>
+          <div style={S.card}>
+            <div style={{fontSize:13,fontWeight:700,color:C.text,marginBottom:12}}>📋 Despesas por categoria</div>
+            {(()=>{
+              const porCat={}
+              despPeriodo.forEach(d=>{
+                const k=`${d.categoria_emoji||'📝'} ${d.categoria_nome||'Outros'}`
+                if(!porCat[k])porCat[k]={total:0,qtd:0}
+                porCat[k].total+=d.valor;porCat[k].qtd++
+              })
+              const cats=Object.entries(porCat).sort((a,b)=>b[1].total-a[1].total)
+              const maxC=cats[0]?.[1].total||1
+              return cats.length===0
+                ?<div style={{color:C.textMuted,fontSize:13,textAlign:'center',padding:16}}>Nenhuma despesa no período</div>
+                :cats.map(([nome,v],i)=>(
+                  <div key={i} style={{marginBottom:10}}>
+                    <div style={{display:'flex',justifyContent:'space-between',marginBottom:3}}>
+                      <span style={{fontSize:13,color:C.text}}>{nome}</span>
+                      <span style={{fontSize:13,fontWeight:700,color:C.primary}}>{fmt(v.total)} <span style={{fontSize:11,color:C.textMuted,fontWeight:400}}>({v.qtd}x)</span></span>
+                    </div>
+                    <div style={{height:6,background:C.bgCard2,borderRadius:3,overflow:'hidden'}}>
+                      <div style={{height:'100%',width:(v.total/maxC*100)+'%',background:C.primary,borderRadius:3}}/>
+                    </div>
+                  </div>
+                ))
+            })()}
+          </div>
+        </div>
+      )}
+
+      {cat==='inteligentes'&&(
+        <div>
+          <FiltroBar/>
+          <RelatoriosInteligentes
+            pagos={pagos} valesPeriodo={valesPeriodo} despPeriodo={despPeriodo}
+            extrasAll={extras} setores={setores} pessoas={pessoas}
+            from={from} to={to} today={today}
+            totalCusto={totalCusto} totalExtras={totalExtras} totalVales={totalVales} totalDespesas={totalDespesas}
+          />
+        </div>
+      )}
+    </div>
+  )
+}
+
+function PesquisaValeDespesa({ vales, despesas, setores, pessoas }) {
+  const [modo, setModo] = useState('vales')
+  const [busca, setBusca] = useState('')
+  const itens = useMemo(()=>{
+    if(modo==='vales')return vales.filter(v=>!busca||v.nome?.toLowerCase().includes(busca.toLowerCase())||v.obs?.toLowerCase().includes(busca.toLowerCase())).sort((a,b)=>b.data_op.localeCompare(a.data_op))
+    return despesas.filter(d=>!busca||d.descricao?.toLowerCase().includes(busca.toLowerCase())||d.categoria_nome?.toLowerCase().includes(busca.toLowerCase())).sort((a,b)=>b.data_op.localeCompare(a.data_op))
+  },[vales,despesas,modo,busca])
+  return(
+    <div>
+      <div style={{display:'flex',gap:4,background:'#f0e8d8',padding:4,borderRadius:10,marginBottom:10}}>
+        {[['vales','💸 Vales'],['despesas','🧾 Despesas']].map(([id,label])=>(
+          <button key={id} onClick={()=>{setModo(id);setBusca('')}}
+            style={{flex:1,padding:'7px',border:'none',borderRadius:8,background:modo===id?'#fff':'transparent',cursor:'pointer',fontSize:12,fontWeight:modo===id?700:400,color:modo===id?C.gold:'#999'}}>
+            {label}
+          </button>
+        ))}
+      </div>
+      <input value={busca} onChange={e=>setBusca(e.target.value)} style={{...S.input,marginBottom:10}}
+        placeholder={modo==='vales'?'Buscar por nome...':'Buscar por descrição ou categoria...'}/>
+      {itens.slice(0,30).map((item,i)=>(
+        <div key={i} style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',padding:'9px 0',borderBottom:`1px solid ${C.border}`}}>
+          <div>
+            <div style={{fontSize:13,fontWeight:600,color:C.text}}>{modo==='vales'?item.nome:item.descricao}</div>
+            <div style={{fontSize:11,color:C.textMuted}}>
+              {dayLabel(item.data_op)}
+              {modo==='despesas'&&item.categoria_emoji&&` · ${item.categoria_emoji} ${item.categoria_nome}`}
+              {item.obs&&` · ${item.obs}`}
+            </div>
+          </div>
+          <div style={{textAlign:'right',flexShrink:0}}>
+            <div style={{fontSize:14,fontWeight:700,color:C.primary}}>{fmt(item.valor)}</div>
+            <div style={{fontSize:10,color:item.forma_pagamento==='pix'?C.secondary:C.success}}>{item.forma_pagamento==='pix'?'📱 Pix':'💵 Din'}</div>
+          </div>
+        </div>
+      ))}
+      {itens.length===0&&<div style={{color:C.textMuted,fontSize:13,textAlign:'center',padding:16}}>Nenhum resultado</div>}
+      {itens.length>30&&<div style={{color:C.textMuted,fontSize:12,textAlign:'center',padding:8}}>Mostrando 30 de {itens.length}. Refine a busca.</div>}
+    </div>
+  )
+}
+
+function RelatorioValesCompacto({ vales, agrupado, from, to, config }) {
+  const [modo, setModo] = useState('resumido')
+  return(
+    <div>
+      <div style={{display:'flex',gap:4,background:'#f0e8d8',padding:4,borderRadius:10,marginBottom:12}}>
+        {[['resumido','Resumido'],['detalhado','Detalhado']].map(([id,label])=>(
+          <button key={id} onClick={()=>setModo(id)}
+            style={{flex:1,padding:'6px',border:'none',borderRadius:8,background:modo===id?'#fff':'transparent',cursor:'pointer',fontSize:12,fontWeight:modo===id?700:400,color:modo===id?C.gold:'#999'}}>
+            {label}
+          </button>
+        ))}
+      </div>
+      {agrupado.length===0&&<div style={{color:C.textMuted,fontSize:13,textAlign:'center',padding:16}}>Nenhum vale no período</div>}
+      {agrupado.map((p,i)=>(
+        <div key={i} style={{marginBottom:12,paddingBottom:12,borderBottom:`1px solid ${C.border}`}}>
+          <div style={{display:'flex',justifyContent:'space-between',marginBottom:modo==='detalhado'?8:0}}>
+            <div>
+              <div style={{fontSize:13,fontWeight:700,color:C.text}}>{p.nome}</div>
+              {p.funcao&&<div style={{fontSize:11,color:C.textMuted}}>{p.funcao}</div>}
+            </div>
+            <div style={{textAlign:'right'}}>
+              <div style={{fontSize:15,fontWeight:700,color:C.primary}}>{fmt(p.total)}</div>
+              <div style={{fontSize:10,color:C.textMuted}}>{p.vales.length} vale{p.vales.length!==1?'s':''}</div>
+            </div>
+          </div>
+          {modo==='detalhado'&&p.vales.sort((a,b)=>b.data_op.localeCompare(a.data_op)).map((v,j)=>(
+            <div key={j} style={{display:'flex',justifyContent:'space-between',padding:'5px 8px',background:C.bgCard2,borderRadius:6,marginBottom:4}}>
+              <span style={{fontSize:11,color:C.textMuted}}>{dayLabel(v.data_op)}{v.obs?` · ${v.obs}`:''}</span>
+              <span style={{fontSize:11,fontWeight:600,color:C.primary}}>{fmt(v.valor)}</span>
+            </div>
+          ))}
+        </div>
+      ))}
+      {agrupado.length>0&&(
+        <button onClick={()=>exportarRelatorioValesPDF(agrupado,from,to,modo,config)}
+          style={{...S.btn(C.accent),width:'100%',marginTop:4}}>
+          📤 Exportar PDF de vales ({modo})
+        </button>
+      )}
+    </div>
+  )
+}
+
+function RelatoriosInteligentes({ pagos, valesPeriodo, despPeriodo, extrasAll, setores, pessoas, from, to, today, totalCusto, totalExtras, totalVales, totalDespesas }) {
+  const extrasComPessoa = useMemo(()=>pagos.map(e=>{const p=pessoas.find(x=>x.id===e.pessoa_id);return{...e,interno_casa:p?.interno_casa||false}}),[pagos,pessoas])
+  const internos=extrasComPessoa.filter(e=>e.interno_casa)
+  const externos=extrasComPessoa.filter(e=>!e.interno_casa)
+  const porSetor = useMemo(()=>setores.map(s=>({nome:s.nome,total:pagos.filter(e=>e.setor_id===s.id).reduce((a,e)=>a+e.valor_final,0),qtd:pagos.filter(e=>e.setor_id===s.id).length,internos:extrasComPessoa.filter(e=>e.setor_id===s.id&&e.interno_casa).length,externos:extrasComPessoa.filter(e=>e.setor_id===s.id&&!e.interno_casa).length})).filter(s=>s.qtd>0).sort((a,b)=>b.total-a.total),[pagos,setores,extrasComPessoa])
+  const porTurno = useMemo(()=>{const t={TD:{label:'Turno Dia',qtd:0,total:0},TN:{label:'Turno Noite',qtd:0,total:0},'TD+TN':{label:'Dia+Noite',qtd:0,total:0},outro:{label:'Sem turno',qtd:0,total:0}};pagos.forEach(e=>{const k=['TD','TN','TD+TN'].includes(e.turnos)?e.turnos:'outro';t[k].qtd++;t[k].total+=e.valor_final});return Object.values(t).filter(t=>t.qtd>0)},[pagos])
+  const DIAS_L=['Dom','Seg','Ter','Qua','Qui','Sex','Sáb']
+  const porDia = useMemo(()=>{const dias=Array(7).fill(null).map((_,i)=>({dia:DIAS_L[i],total:0,qtd:0}));pagos.forEach(e=>{const[y,m,d]=e.data_op.split('-');const dow=new Date(Number(y),Number(m)-1,Number(d)).getDay();dias[dow].total+=e.valor_final;dias[dow].qtd++});return dias},[pagos])
+  const maxDia=Math.max(...porDia.map(d=>d.total),1)
+  const ranking=useMemo(()=>{const map={};extrasComPessoa.forEach(e=>{if(!map[e.nome])map[e.nome]={nome:e.nome,total:0,qtd:0,interno:e.interno_casa};map[e.nome].total+=e.valor_final;map[e.nome].qtd++});return Object.values(map).sort((a,b)=>b.qtd-a.qtd).slice(0,8)},[extrasComPessoa])
+  const semAnteriorFim=toDateStr(new Date(new Date(from+'T12:00:00').getTime()-86400000))
+  const semAnteriorStart=toDateStr(new Date(new Date(semAnteriorFim+'T12:00:00').getTime()-6*86400000))
+  const totalAntSem=useMemo(()=>extrasAll.filter(e=>e.pago&&e.data_op>=semAnteriorStart&&e.data_op<=semAnteriorFim).reduce((a,e)=>a+e.valor_final,0),[extrasAll])
+  const variacaoSem=totalAntSem>0?Math.round(((totalCusto-totalAntSem)/totalAntSem)*100):0
+  const pctInternos=pagos.length>0?Math.round(internos.length/pagos.length*100):0
+  const alertas=[]
+  if(variacaoSem>20)alertas.push({cor:'#ef4444',titulo:`Custo ${variacaoSem}% acima da semana anterior`,motivo:'Você gastou mais com pessoal do que no mesmo período. Revise escalas e jornadas duplas.'})
+  if(variacaoSem<-15)alertas.push({cor:'#22c55e',titulo:`Custo ${Math.abs(variacaoSem)}% abaixo da semana anterior`,motivo:'Menos saídas com pessoal — pode ser movimento menor ou escala otimizada.'})
+  if(pctInternos>40)alertas.push({cor:'#f59e0b',titulo:`${pctInternos}% dos extras são da casa`,motivo:'Alta participação de internos aumenta custo fixo.'})
+  const jduplas=pagos.filter(e=>e.turnos==='TD+TN')
+  if(jduplas.length>3)alertas.push({cor:'#f59e0b',titulo:`${jduplas.length} jornadas duplas no período`,motivo:'TD+TN custa o dobro. Avalie escalar 2 pessoas por turno.'})
+  const maxS=porSetor[0]?.total||1
+  return(
+    <div>
+      {alertas.length>0&&<div style={{marginBottom:12}}>{alertas.map((a,i)=><AlertaCard key={i} alerta={a}/>)}</div>}
+      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8,marginBottom:12}}>
+        <div style={{...S.card,margin:0,textAlign:'center'}}>
+          <div style={{fontSize:10,color:C.textMuted,textTransform:'uppercase'}}>🏠 Da casa</div>
+          <div style={{fontSize:22,fontWeight:700,color:'#3b82f6'}}>{internos.length}</div>
+          <div style={{fontSize:10,color:pctInternos>40?'#f59e0b':C.textMuted}}>{pctInternos}% do total</div>
+        </div>
+        <div style={{...S.card,margin:0,textAlign:'center'}}>
+          <div style={{fontSize:10,color:C.textMuted,textTransform:'uppercase'}}>🚶 Externos</div>
+          <div style={{fontSize:22,fontWeight:700,color:C.textMuted}}>{externos.length}</div>
+          <div style={{fontSize:10,color:C.textMuted}}>{pagos.length>0?100-pctInternos:0}% do total</div>
+        </div>
+      </div>
+      {porTurno.length>0&&<div style={S.card}><div style={{fontSize:12,fontWeight:700,color:C.textMuted,marginBottom:10}}>🌙 Por turno</div>{porTurno.map((t,i)=>{const pct=pagos.length>0?Math.round(t.qtd/pagos.length*100):0;return(<div key={i} style={{marginBottom:10}}><div style={{display:'flex',justifyContent:'space-between',marginBottom:3}}><span style={{fontSize:13,color:C.text}}>{t.label}</span><span style={{fontSize:13,fontWeight:700,color:C.primary}}>{fmt(t.total)} <span style={{fontSize:10,color:C.textMuted,fontWeight:400}}>({pct}%)</span></span></div><div style={{height:6,background:C.bgCard2,borderRadius:3,overflow:'hidden'}}><div style={{height:'100%',width:pct+'%',background:C.primary,borderRadius:3}}/></div></div>)})}</div>}
+      <div style={S.card}><div style={{fontSize:12,fontWeight:700,color:C.textMuted,marginBottom:10}}>📅 Por dia da semana</div>{porDia.map((d,i)=>(<div key={i} style={{display:'flex',alignItems:'center',gap:8,marginBottom:6}}><div style={{width:28,fontSize:11,color:[0,5,6].includes(i)?C.primary:C.textMuted,fontWeight:[0,5,6].includes(i)?700:400}}>{d.dia}</div><div style={{flex:1,height:12,background:C.bgCard2,borderRadius:3,overflow:'hidden'}}><div style={{height:'100%',width:d.total>0?(d.total/maxDia*100)+'%':'0%',background:[0,5,6].includes(i)?C.primary:C.secondary,borderRadius:3,transition:'width 0.3s'}}/></div><div style={{width:60,fontSize:11,textAlign:'right',color:C.textMuted}}>{d.total>0?fmt(d.total):'—'}</div></div>))}</div>
+      {porSetor.length>0&&<div style={S.card}><div style={{fontSize:12,fontWeight:700,color:C.textMuted,marginBottom:10}}>📁 Por setor</div>{porSetor.map((s,i)=>(<div key={i} style={{marginBottom:12}}><div style={{display:'flex',justifyContent:'space-between',marginBottom:3}}><span style={{fontSize:13,color:C.text}}>{s.nome}</span><span style={{fontSize:13,fontWeight:700,color:C.primary}}>{fmt(s.total)}</span></div><div style={{height:6,background:C.bgCard2,borderRadius:3,overflow:'hidden'}}><div style={{height:'100%',width:(s.total/maxS*100)+'%',background:C.primary,borderRadius:3}}/></div><div style={{display:'flex',gap:8,marginTop:4}}><span style={{fontSize:10,color:'#3b82f6'}}>🏠 {s.internos}</span><span style={{fontSize:10,color:C.textMuted}}>🚶 {s.externos}</span></div></div>))}</div>}
+      {ranking.length>0&&<div style={S.card}><div style={{fontSize:12,fontWeight:700,color:C.textMuted,marginBottom:10}}>🏆 Ranking no período</div>{ranking.map((p,i)=>(<div key={i} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'8px 0',borderBottom:`1px solid ${C.border}`}}><div style={{display:'flex',alignItems:'center',gap:10}}><span style={{fontSize:13,color:i<3?C.primary:C.textDim,fontWeight:800}}>#{i+1}</span><div><div style={{fontSize:13,fontWeight:600,color:C.text}}>{p.nome}</div><div style={{fontSize:10,color:C.textMuted}}>{p.qtd} escala{p.qtd!==1?'s':''} · {p.interno?'🏠':'🚶'}</div></div></div><div style={{fontSize:14,fontWeight:700,color:C.primary}}>{fmt(p.total)}</div></div>))}</div>}
+      {pagos.length===0&&<div style={{...S.card,textAlign:'center',padding:32,color:C.textMuted}}>Nenhum dado no período selecionado</div>}
+    </div>
+  )
+}
+
+// ─── ALERTA CARD (expansível) ─────────────────────────────────────────────────
+
+function AlertaCard({ alerta }) {
+  const [aberto, setAberto] = useState(false)
+  return (
+    <div onClick={() => setAberto(!aberto)}
+      style={{ background: alerta.cor + '12', border: `1px solid ${alerta.cor}44`, borderRadius: 10, padding: '10px 12px', marginBottom: 6, cursor: 'pointer' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <span style={{ fontSize: 12, color: alerta.cor, fontWeight: 700 }}>{alerta.titulo}</span>
+        <span style={{ fontSize: 11, color: alerta.cor, opacity: 0.7 }}>{aberto ? '▲' : '▼'}</span>
+      </div>
+      {aberto && (
+        <div style={{ fontSize: 12, color: alerta.cor, opacity: 0.85, marginTop: 6, lineHeight: 1.5, borderTop: `1px solid ${alerta.cor}33`, paddingTop: 6 }}>
+          {alerta.motivo}
+        </div>
+      )}
+    </div>
+  )
+}
+
 function TabRelatorios({ store }) {
   const { extras, vales, despesas, pessoas, setores, config } = store
   const [subTela, setSubTela] = useState('financeiro')
@@ -2203,17 +2518,45 @@ function TabRelatorios({ store }) {
   // Alertas inteligentes
   const alertas = useMemo(() => {
     const lista = []
-    if (variacaoSem > 20) lista.push({ cor: '#ef4444', msg: `Custo ${variacaoSem}% acima da semana anterior` })
-    if (variacaoSem < -15) lista.push({ cor: '#22c55e', msg: `Custo ${Math.abs(variacaoSem)}% abaixo da semana anterior` })
+    if (variacaoSem > 20) lista.push({
+      cor: '#ef4444',
+      titulo: `Custo ${variacaoSem}% acima da semana passada`,
+      motivo: 'Você gastou significativamente mais com pessoal do que no mesmo período anterior. Vale revisar se houve mais turnos, mais extras escalados ou jornadas duplas.',
+    })
+    if (variacaoSem < -15) lista.push({
+      cor: '#22c55e',
+      titulo: `Custo ${Math.abs(variacaoSem)}% abaixo da semana passada`,
+      motivo: 'Boa notícia: menos saídas com pessoal. Pode ser movimento menor ou otimização da escala.',
+    })
     const pctInternos = pagos.length > 0 ? Math.round((internos.length / pagos.length) * 100) : 0
-    if (pctInternos > 40) lista.push({ cor: '#f59e0b', msg: `${pctInternos}% dos extras são funcionários da casa` })
+    if (pctInternos > 40) lista.push({
+      cor: '#f59e0b',
+      titulo: `${pctInternos}% dos extras são funcionários da casa`,
+      motivo: 'Mais de 40% dos escalados são internos. Isso aumenta o custo fixo — verifique se o movimento justifica tantos extras do quadro.',
+    })
     const cozinhaExternos = extrasComPessoa.filter(e => { const s = setores.find(x => x.id === e.setor_id); return s?.nome?.toLowerCase().includes('cozinha') && !e.interno_casa })
-    if (cozinhaExternos.length > 5) lista.push({ cor: '#f59e0b', msg: `Cozinha com alta dependência de externos (${cozinhaExternos.length} extras)` })
+    if (cozinhaExternos.length > 5) lista.push({
+      cor: '#f59e0b',
+      titulo: `Cozinha com ${cozinhaExternos.length} externos no período`,
+      motivo: 'Alta dependência de extras externos na cozinha pode indicar falta de mão de obra fixa ou escala mal dimensionada para o movimento.',
+    })
     const ndExtras = pagos.filter(e => e.turnos === 'TD+TN')
-    if (ndExtras.length > 3) lista.push({ cor: '#f59e0b', msg: `${ndExtras.length} extras em jornada dupla (Dia+Noite)` })
+    if (ndExtras.length > 3) lista.push({
+      cor: '#f59e0b',
+      titulo: `${ndExtras.length} jornadas duplas (TD+TN) no período`,
+      motivo: 'Jornadas Dia+Noite custam o dobro. Se são frequentes, vale avaliar se é melhor escalar duas pessoas por turno em vez de uma em jornada dupla.',
+    })
     const obsImportantes = extrasComPessoa.filter(e => e.obs_fixa && e.obs_fixa.length > 0)
-    if (obsImportantes.length > 0) lista.push({ cor: '#3b82f6', msg: `${obsImportantes.length} extras com observações importantes` })
-    if (pagosHoje.length === 0 && filtro === 'hoje') lista.push({ cor: '#8a7355', msg: 'Nenhum pagamento registrado hoje ainda' })
+    if (obsImportantes.length > 0) lista.push({
+      cor: '#3b82f6',
+      titulo: `${obsImportantes.length} extras com observação cadastrada`,
+      motivo: 'Há pessoas na escala com anotações importantes (atrasos, restrições, preferências). Confira antes de fechar o pagamento.',
+    })
+    if (pagosHoje.length === 0 && filtro === 'hoje') lista.push({
+      cor: '#8a7355',
+      titulo: 'Nenhum pagamento registrado hoje ainda',
+      motivo: 'O turno está aberto mas ainda não foi confirmado nenhum pagamento. Normal se o dia ainda está em andamento.',
+    })
     return lista
   }, [pagos, internos, variacaoSem, extrasComPessoa, setores, pagosHoje])
 
@@ -2287,20 +2630,20 @@ function TabRelatorios({ store }) {
         {/* Alertas */}
         {alertas.length > 0 && (
           <div style={{ marginBottom: 12 }}>
+            <div style={{ fontSize: 11, fontWeight: 700, color: C.textMuted, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6 }}>
+              ⚡ Atenção
+            </div>
             {alertas.map((a, i) => (
-              <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, background: a.cor + '15', border: `1px solid ${a.cor}44`, borderRadius: 8, padding: '8px 12px', marginBottom: 6 }}>
-                <span style={{ fontSize: 16 }}>⚡</span>
-                <span style={{ fontSize: 12, color: a.cor, fontWeight: 600 }}>{a.msg}</span>
-              </div>
+              <AlertaCard key={i} alerta={a} />
             ))}
           </div>
         )}
 
         {/* Cards principais */}
         <div style={{ ...S.card, margin: 0, marginBottom: 8, background: 'linear-gradient(135deg,#1a1200,#2d2000)', color: '#fff' }}>
-          <div style={{ fontSize: 10, color: '#c9a96e80', textTransform: 'uppercase', letterSpacing: '0.1em' }}>💰 Total de Saídas</div>
+          <div style={{ fontSize: 10, color: '#c9a96e80', textTransform: 'uppercase', letterSpacing: '0.1em' }}>💰 Total saindo do caixa</div>
           <div style={{ fontSize: 28, fontWeight: 700, color: '#c9a96e' }}>{fmt(totalCusto)}</div>
-          {variacaoSem !== 0 && <div style={{ fontSize: 10, color: corVariacao, fontWeight: 600, marginTop: 2 }}>{variacaoSem > 0 ? '↑' : '↓'} {Math.abs(variacaoSem)}% vs semana anterior</div>}
+          {variacaoSem !== 0 && <div style={{ fontSize: 10, color: corVariacao, fontWeight: 600, marginTop: 2 }}>{variacaoSem > 0 ? '↑' : '↓'} {Math.abs(variacaoSem)}% vs semana passada</div>}
           <div style={{ display: 'flex', gap: 12, marginTop: 8, paddingTop: 8, borderTop: '1px solid #ffffff15' }}>
             <div style={{ fontSize: 11, color: '#ffffff70' }}>💼 Extras: <strong style={{ color: '#c9a96e' }}>{fmt(totalExtras)}</strong></div>
             <div style={{ fontSize: 11, color: '#ffffff70' }}>💸 Vales: <strong style={{ color: '#c9a96e' }}>{fmt(totalVales)}</strong></div>
@@ -2310,32 +2653,33 @@ function TabRelatorios({ store }) {
 
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 12 }}>
           <div style={{ ...S.card, margin: 0, textAlign: 'center' }}>
-            <div style={{ fontSize: 10, color: '#8a7355', textTransform: 'uppercase' }}>👥 Extras pagos</div>
+            <div style={{ fontSize: 10, color: '#8a7355', textTransform: 'uppercase' }}>👥 Pessoas escaladas</div>
             <div style={{ fontSize: 22, fontWeight: 700, color: '#1a1a2e' }}>{pagos.length}</div>
-            <div style={{ fontSize: 10, color: '#8a7355' }}>Média {mediaCustoPorDia > 0 ? fmt(mediaCustoPorDia) : '—'}/dia</div>
+            <div style={{ fontSize: 10, color: '#8a7355' }}>no período</div>
           </div>
           <div style={{ ...S.card, margin: 0, textAlign: 'center' }}>
-            <div style={{ fontSize: 10, color: '#8a7355', textTransform: 'uppercase' }}>📅 Dias no período</div>
-            <div style={{ fontSize: 22, fontWeight: 700, color: C.accent }}>{diasUnicos.length}</div>
-            <div style={{ fontSize: 10, color: '#8a7355' }}>{diasUnicos.length > 0 ? fmt(mediaCustoPorDia)+'/dia' : '—'}</div>
+            <div style={{ fontSize: 10, color: '#8a7355', textTransform: 'uppercase' }}>📅 Custo médio/dia</div>
+            <div style={{ fontSize: 22, fontWeight: 700, color: C.accent }}>{mediaCustoPorDia > 0 ? fmt(mediaCustoPorDia) : '—'}</div>
+            <div style={{ fontSize: 10, color: '#8a7355' }}>{diasUnicos.length} dia{diasUnicos.length !== 1 ? 's' : ''} com saída</div>
           </div>
           <div style={{ ...S.card, margin: 0, textAlign: 'center' }}>
-            <div style={{ fontSize: 10, color: '#8a7355', textTransform: 'uppercase' }}>🏠 Internos</div>
+            <div style={{ fontSize: 10, color: '#8a7355', textTransform: 'uppercase' }}>🏠 Da casa</div>
             <div style={{ fontSize: 22, fontWeight: 700, color: '#3b82f6' }}>{internos.length}</div>
             <div style={{ fontSize: 10, color: pagos.length > 0 && (internos.length/pagos.length) > 0.4 ? '#f59e0b' : '#8a7355' }}>
-              {pagos.length > 0 ? Math.round((internos.length/pagos.length)*100) : 0}% dos extras
+              {pagos.length > 0 ? Math.round((internos.length/pagos.length)*100) : 0}% dos escalados
             </div>
           </div>
           <div style={{ ...S.card, margin: 0, textAlign: 'center' }}>
-            <div style={{ fontSize: 10, color: '#8a7355', textTransform: 'uppercase' }}>🚶 Externos</div>
+            <div style={{ fontSize: 10, color: '#8a7355', textTransform: 'uppercase' }}>🚶 Extras externos</div>
             <div style={{ fontSize: 22, fontWeight: 700, color: '#8a7355' }}>{externos.length}</div>
-            <div style={{ fontSize: 10, color: '#8a7355' }}>{pagos.length > 0 ? Math.round((externos.length/pagos.length)*100) : 0}% dos extras</div>
+            <div style={{ fontSize: 10, color: '#8a7355' }}>{pagos.length > 0 ? Math.round((externos.length/pagos.length)*100) : 0}% dos escalados</div>
           </div>
         </div>
 
         {/* Pix vs Dinheiro */}
         <div style={S.card}>
-          <div style={{ fontSize: 12, fontWeight: 700, color: '#8a7355', marginBottom: 10 }}>💳 Forma de Pagamento (todas as saídas)</div>
+          <div style={{ fontSize: 12, fontWeight: 700, color: '#8a7355', marginBottom: 4 }}>💳 Como o dinheiro saiu</div>
+          <div style={{ fontSize: 11, color: C.textMuted, marginBottom: 10 }}>Proporção entre Dinheiro e Pix em todas as saídas do período</div>
           <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
             <div style={{ flex: 1, textAlign: 'center' }}>
               <div style={{ fontSize: 11, color: '#22c55e' }}>💵 Dinheiro</div>
@@ -2357,7 +2701,8 @@ function TabRelatorios({ store }) {
 
         {/* Heatmap por dia da semana */}
         <div style={S.card}>
-          <div style={{ fontSize: 12, fontWeight: 700, color: '#8a7355', marginBottom: 10 }}>📅 Custo por dia da semana</div>
+          <div style={{ fontSize: 12, fontWeight: 700, color: '#8a7355', marginBottom: 4 }}>📅 Dias mais caros da semana</div>
+          <div style={{ fontSize: 11, color: C.textMuted, marginBottom: 10 }}>Mostra em quais dias você gasta mais com pessoal. Fins de semana destacados em dourado.</div>
           {porDiaSemana.map((d, i) => (
             <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
               <div style={{ width: 28, fontSize: 11, color: [0,5,6].includes(i) ? '#c9a96e' : '#666', fontWeight: [0,5,6].includes(i) ? 700 : 400 }}>{d.dia}</div>
@@ -3725,7 +4070,7 @@ function TabVales({ store, today, setModal }) {
 
       {/* Sub-navegação */}
       <div style={{ display: 'flex', gap: 4, background: '#f0e8d8', padding: 4, borderRadius: 12, marginBottom: 14 }}>
-        {[['lista','📋 Lista'],['pesquisa','🔍 Pesquisa'],['relatorio','📄 Relatório']].map(([id, label]) => (
+        {[['lista','📋 Lista'],['pesquisa','🔍 Pesquisa']].map(([id, label]) => (
           <button key={id} onClick={() => setSubTela(id)}
             style={{ flex: 1, padding: '8px 2px', border: 'none', borderRadius: 8, background: subTela === id ? '#fff' : 'transparent', cursor: 'pointer', fontSize: 11, fontWeight: subTela === id ? 700 : 400, color: subTela === id ? C.gold : '#999' }}>
             {label}
@@ -4055,9 +4400,6 @@ function TabVales({ store, today, setModal }) {
       </>}
 
       {/* ─── RELATÓRIO ─── */}
-      {subTela === 'relatorio' && (
-        <RelatorioVales vales={vales} setores={setores} config={config} today={today} />
-      )}
     </div>
   )
 }
