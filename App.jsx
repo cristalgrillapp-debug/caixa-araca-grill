@@ -2465,7 +2465,6 @@ function TabRelatorios({ store }) {
             )
           })()}
         </div>
-      </>}
 
       {/* ─── SETORES ─── */}
         <div style={{ fontSize: 12, fontWeight: 700, color: '#8a7355', marginBottom: 10, marginTop: 4 }}>📁 Por Setor</div>
