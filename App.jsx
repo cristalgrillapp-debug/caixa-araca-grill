@@ -5,6 +5,31 @@ import { collection, addDoc, updateDoc, setDoc, doc, onSnapshot, deleteDoc, runT
 import Dashboard from './Dashboard'
 
 const fmt = (cents) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format((cents || 0) / 100)
+
+// Abre relatório para imprimir OU compartilha direto via share sheet do Android
+async function abrirRelatorio(html, titulo, compartilhar = false) {
+  if (compartilhar) {
+    // Remove o auto-print para não imprimir ao compartilhar
+    const htmlSemPrint = html.replace(/<script>window\.onload.*?<\/script>/g, '')
+    try {
+      const blob = new Blob([htmlSemPrint], { type: 'text/html' })
+      const file = new File([blob], titulo + '.html', { type: 'text/html' })
+      if (navigator.canShare && navigator.canShare({ files: [file] })) {
+        await navigator.share({ files: [file], title: titulo })
+        return
+      }
+    } catch (e) {
+      if (e.name === 'AbortError') return // usuário cancelou
+    }
+    // Fallback: abre normal sem auto-print
+    const w = window.open('', '_blank', 'width=900,height=700')
+    if (w) { w.document.write(htmlSemPrint); w.document.close() }
+    return
+  }
+  // Abre para imprimir normalmente
+  const w = window.open('', '_blank', 'width=900,height=700')
+  if (w) { w.document.write(html); w.document.close() }
+}
 const parseCents = (str) => parseInt(String(str).replace(/\D/g, '') || '0', 10)
 const DIAS = ['DOM', 'SEG', 'TER', 'QUA', 'QUI', 'SEX', 'SÁB']
 const toDateStr = (d) => {
@@ -1632,7 +1657,7 @@ function TabLancamentos({ store, today }) {
 
 // ─── RELATÓRIO COMPLETO DE SAÍDAS (PDF) ──────────────────────────────────────
 
-function exportarRelatorioCompleto(extras, vales, despesas, pessoas, setores, config, from, to) {
+function exportarRelatorioCompleto(extras, vales, despesas, pessoas, setores, config, from, to, compartilhar = false) {
   const DIAS2 = ['Dom','Seg','Ter','Qua','Qui','Sex','Sáb']
   const dl = (d) => { if (!d) return ''; const [y,m,dd] = d.split('-'); const dt = new Date(Number(y),Number(m)-1,Number(dd)); return DIAS2[dt.getDay()]+' '+String(dt.getDate()).padStart(2,'0')+'/'+String(dt.getMonth()+1).padStart(2,'0') }
   const fmt2 = (c) => new Intl.NumberFormat('pt-BR',{style:'currency',currency:'BRL'}).format((c||0)/100)
@@ -1729,8 +1754,7 @@ function exportarRelatorioCompleto(extras, vales, despesas, pessoas, setores, co
   <script>window.onload=()=>window.print()<\/script>
   </body></html>`
 
-  const w = window.open('','_blank','width=1100,height=800')
-  w.document.write(html); w.document.close()
+  abrirRelatorio(html, `${nomeEstab} Saídas`, compartilhar)
 }
 
 // ─── EXPORTAR EXCEL ──────────────────────────────────────────────────────────
@@ -1791,7 +1815,7 @@ function exportarExcel(pagos, pessoas, setores, config, from, to) {
 
 // ─── EXPORTAR PDF ─────────────────────────────────────────────────────────────
 
-function exportarPDF(pagos, pessoas, setores, config, from, to) {
+function exportarPDF(pagos, pessoas, setores, config, from, to, compartilhar = false) {
   const DIAS = ['Dom','Seg','Ter','Qua','Qui','Sex','Sáb']
   const dl = (d) => { if (!d) return ''; const [y,m,dd] = d.split('-'); const dt = new Date(Number(y),Number(m)-1,Number(dd)); return DIAS[dt.getDay()]+' '+String(dt.getDate()).padStart(2,'0')+'/'+String(dt.getMonth()+1).padStart(2,'0') }
   const fmt2 = (c) => new Intl.NumberFormat('pt-BR',{style:'currency',currency:'BRL'}).format((c||0)/100)
@@ -1915,9 +1939,7 @@ function exportarPDF(pagos, pessoas, setores, config, from, to) {
   <script>window.onload = () => window.print()<\/script>
   </body></html>`
 
-  const w = window.open('', '_blank', 'width=1100,height=700')
-  w.document.write(html)
-  w.document.close()
+  abrirRelatorio(html, `${nomeEstab} Extras`, compartilhar)
 }
 
 function exportarRelatorio(pagos, pessoas, setores, config, from, to) {
@@ -2209,8 +2231,12 @@ function TabRelatoriosCentral({ store, today }) {
           <div style={{...S.card,marginBottom:12}}>
             <div style={{fontSize:13,fontWeight:700,color:C.text,marginBottom:6}}>📄 PDF completo de saídas</div>
             <div style={{fontSize:11,color:C.textMuted,marginBottom:10}}>Extras + vales + despesas do período</div>
-            <button onClick={()=>exportarRelatorioCompleto(pagos,valesPeriodo,despPeriodo,pessoas,setores,config,from,to)}
-              style={{...S.btn(C.primary),width:'100%'}}>📤 Exportar PDF completo</button>
+            <div style={{display:'flex',gap:8}}>
+              <button onClick={()=>exportarRelatorioCompleto(pagos,valesPeriodo,despPeriodo,pessoas,setores,config,from,to)}
+                style={{...S.btn(C.primary),flex:1}}>🖨️ Imprimir</button>
+              <button onClick={()=>exportarRelatorioCompleto(pagos,valesPeriodo,despPeriodo,pessoas,setores,config,from,to,true)}
+                style={{...S.btn(C.success),flex:1}}>📲 Compartilhar</button>
+            </div>
           </div>
           <div style={S.card}>
             <div style={{fontSize:13,fontWeight:700,color:C.text,marginBottom:12}}>💸 Vales do período</div>
@@ -2224,9 +2250,11 @@ function TabRelatoriosCentral({ store, today }) {
           <FiltroBar/>
           <div style={{display:'flex',gap:8,marginBottom:12}}>
             <button onClick={()=>exportarExcel(pagos,pessoas,setores,config,from,to)}
-              style={{...S.btn(C.success),flex:1}}>📊 Excel extras</button>
+              style={{...S.btn(C.success),flex:1}}>📊 Excel</button>
             <button onClick={()=>exportarPDF(pagos,pessoas,setores,config,from,to)}
-              style={{...S.btn(C.danger,true),flex:1}}>📄 PDF extras</button>
+              style={{...S.btn(C.danger,true),flex:1}}>🖨️ PDF</button>
+            <button onClick={()=>exportarPDF(pagos,pessoas,setores,config,from,to,true)}
+              style={{...S.btn(C.primary),flex:1}}>📲 Compartilhar</button>
           </div>
           <PesquisaFuncionario store={store} extras={extras} setores={setores} from={from} to={to} config={config}/>
         </div>
@@ -2358,10 +2386,16 @@ function RelatorioValesCompacto({ vales, agrupado, from, to, config }) {
         </div>
       ))}
       {agrupado.length>0&&(
-        <button onClick={()=>exportarRelatorioValesPDF(agrupado,from,to,modo,config)}
-          style={{...S.btn(C.accent),width:'100%',marginTop:4}}>
-          📤 Exportar PDF de vales ({modo})
-        </button>
+        <div style={{display:'flex',gap:8,marginTop:4}}>
+          <button onClick={()=>exportarRelatorioValesPDF(agrupado,from,to,modo,config)}
+            style={{...S.btn(C.accent),flex:1}}>
+            🖨️ Imprimir ({modo})
+          </button>
+          <button onClick={()=>exportarRelatorioValesPDF(agrupado,from,to,modo,config,true)}
+            style={{...S.btn(C.success),flex:1}}>
+            📲 Compartilhar
+          </button>
+        </div>
       )}
     </div>
   )
@@ -4444,7 +4478,7 @@ function TabVales({ store, today, setModal }) {
 
 // ─── RELATÓRIO DE VALES ───────────────────────────────────────────────────────
 
-function exportarRelatorioValesPDF(agrupado, from, to, modo, config) {
+function exportarRelatorioValesPDF(agrupado, from, to, modo, config, compartilhar = false) {
   const DIAS2 = ['Dom','Seg','Ter','Qua','Qui','Sex','Sáb']
   const dl = (d) => { if (!d) return ''; const [y,m,dd] = d.split('-'); const dt = new Date(Number(y),Number(m)-1,Number(dd)); return DIAS2[dt.getDay()]+' '+String(dt.getDate()).padStart(2,'0')+'/'+String(dt.getMonth()+1).padStart(2,'0') }
   const fmt2 = (c) => new Intl.NumberFormat('pt-BR',{style:'currency',currency:'BRL'}).format((c||0)/100)
@@ -4524,8 +4558,7 @@ function exportarRelatorioValesPDF(agrupado, from, to, modo, config) {
   <script>window.onload=()=>window.print()<\/script>
   </body></html>`
 
-  const w = window.open('','_blank','width=900,height=700')
-  w.document.write(html); w.document.close()
+  abrirRelatorio(html, `${nomeEstab} Vales`, compartilhar)
 }
 
 function RelatorioVales({ vales, setores, config, today }) {
