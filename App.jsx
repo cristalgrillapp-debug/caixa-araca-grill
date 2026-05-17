@@ -1754,7 +1754,7 @@ function exportarRelatorioCompleto(extras, vales, despesas, pessoas, setores, co
   <script>window.onload=()=>window.print()<\/script>
   </body></html>`
 
-  abrirRelatorio(html, `${nomeEstab} Saídas`, compartilhar)
+  abrirRelatorio(html, `Relatorio Saidas ${from.split('-').slice(1).reverse().join('-')}`, compartilhar)
 }
 
 // ─── EXPORTAR EXCEL ──────────────────────────────────────────────────────────
@@ -1939,7 +1939,7 @@ function exportarPDF(pagos, pessoas, setores, config, from, to, compartilhar = f
   <script>window.onload = () => window.print()<\/script>
   </body></html>`
 
-  abrirRelatorio(html, `${nomeEstab} Extras`, compartilhar)
+  abrirRelatorio(html, `Relatorio Extras ${from.split('-').slice(1).reverse().join('-')}`, compartilhar)
 }
 
 function exportarRelatorio(pagos, pessoas, setores, config, from, to) {
@@ -4558,7 +4558,7 @@ function exportarRelatorioValesPDF(agrupado, from, to, modo, config, compartilha
   <script>window.onload=()=>window.print()<\/script>
   </body></html>`
 
-  abrirRelatorio(html, `${nomeEstab} Vales`, compartilhar)
+  abrirRelatorio(html, `Relatorio Vales ${from.split('-').slice(1).reverse().join('-')}`, compartilhar)
 }
 
 function RelatorioVales({ vales, setores, config, today }) {
