@@ -5079,8 +5079,7 @@ function ModalNovaDespesa({ store, today, onClose }) {
   const [salvando, setSalvando] = useState(false)
   const [busca, setBusca] = useState('')
   const fotoRef = useRef(null)
-
-  const catSel = categorias.find(c => c.id === categoriaId)
+  const galeriaRef = useRef(null)
 
   // Ordenação inteligente: favorita → mais usada nos últimos 30 dias → ordem
   const catsOrdenadas = useMemo(() => {
@@ -5105,6 +5104,9 @@ function ModalNovaDespesa({ store, today, onClose }) {
     return catSel.descricoes_sugeridas
   }, [catSel])
 
+  const [assinatura, setAssinatura] = useState(null)
+  const [mostrarAssinatura, setMostrarAssinatura] = useState(false)
+
   const handleFoto = async (e) => {
     const file = e.target.files?.[0]
     if (!file) return
@@ -5112,12 +5114,14 @@ function ModalNovaDespesa({ store, today, onClose }) {
     setFoto(comprimida)
   }
 
+  const temComprovante = foto || assinatura || obs.trim()
+
   const save = async () => {
     if (!categoriaId) return alert('Selecione uma categoria.')
     const v = parseCents(valorDisplay)
     if (!v || v < 100) return alert('Informe um valor válido (mínimo R$1,00).')
-    if (!descricao.trim()) return alert('Descreva a despesa.')
-    if (!foto && !obs.trim()) return alert('Sem nota fiscal: adicione uma observação explicando o motivo.')
+    if (!descricao.trim()) return alert('Digite o texto da sangria.')
+    if (!temComprovante) return alert('Adicione uma nota fiscal, assinatura ou observação.')
     setSalvando(true)
     try {
       await addDespesa({
@@ -5134,6 +5138,7 @@ function ModalNovaDespesa({ store, today, onClose }) {
         forma_pagamento:      forma,
         obs:                  obs.trim(),
         foto:                 foto || null,
+        assinatura:           assinatura || null,
         lancado:              false,
         criado_em:            new Date().toISOString(),
       })
@@ -5251,33 +5256,115 @@ function ModalNovaDespesa({ store, today, onClose }) {
           </div>
         </div>
 
-        {/* Foto da nota */}
+        {/* Descrição — texto da sangria */}
         <div>
-          <label style={S.label}>Nota fiscal / Comprovante</label>
+          <label style={S.label}>Texto da sangria *</label>
+          <input value={descricao} onChange={e => setDescricao(e.target.value)}
+            style={S.input}
+            placeholder={catSel ? `${catSel.emoji} Este texto aparecerá na sangria...` : 'Selecione uma categoria primeiro'} />
+          <div style={{ fontSize: 11, color: C.textMuted, marginTop: 4 }}>
+            Este texto aparecerá na sangria e nos relatórios.
+          </div>
+        </div>
+
+        {/* Valor + Setor */}
+        <div style={{ display: 'flex', gap: 8 }}>
+          <div style={{ flex: 1 }}>
+            <label style={S.label}>Valor *</label>
+            <input value={valorDisplay}
+              onChange={e => { const r = e.target.value.replace(/\D/g,''); setValorDisplay(r ? fmt(parseInt(r)) : '') }}
+              style={{ ...S.input, fontSize: 18, fontWeight: 700 }} placeholder="R$ 0,00" inputMode="numeric" />
+          </div>
+          <div style={{ flex: 1 }}>
+            <label style={S.label}>Setor</label>
+            <select value={setorId} onChange={e => setSetorId(e.target.value)} style={S.input}>
+              <option value="">—</option>
+              {setores.filter(s => s.ativo).map(s => <option key={s.id} value={s.id}>{s.nome}</option>)}
+            </select>
+          </div>
+        </div>
+
+        <div style={{ background: C.bgCard2, borderRadius: 10, padding: '10px 14px', border: `1px solid ${C.border}` }}>
+          <div style={{ fontSize: 12, color: C.textMuted }}>📅 Data: <strong>{dayLabel(today)}</strong></div>
+        </div>
+
+        {/* Forma de pagamento */}
+        <div>
+          <label style={S.label}>Forma de pagamento</label>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button onClick={() => setForma('dinheiro')} style={{ flex: 1, padding: '12px', border: `2px solid ${forma === 'dinheiro' ? '#22c55e' : C.border}`, borderRadius: 10, background: forma === 'dinheiro' ? '#22c55e20' : C.bgCard2, cursor: 'pointer', fontSize: 13, fontWeight: 700, color: forma === 'dinheiro' ? '#22c55e' : C.textMuted }}>💵 Dinheiro</button>
+            <button onClick={() => setForma('pix')} style={{ flex: 1, padding: '12px', border: `2px solid ${forma === 'pix' ? '#3b82f6' : C.border}`, borderRadius: 10, background: forma === 'pix' ? '#3b82f620' : C.bgCard2, cursor: 'pointer', fontSize: 13, fontWeight: 700, color: forma === 'pix' ? '#3b82f6' : C.textMuted }}>📱 Pix</button>
+          </div>
+        </div>
+
+        {/* Comprovante — foto, assinatura ou observação */}
+        <div>
+          <label style={S.label}>
+            Comprovante *
+            <span style={{ fontSize: 10, color: C.textMuted, fontWeight: 400, marginLeft: 6 }}>
+              foto, assinatura ou observação
+            </span>
+          </label>
+
+          {/* Indicador do que já foi preenchido */}
+          {temComprovante && (
+            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 8 }}>
+              {foto      && <span style={{ fontSize: 11, background: '#22c55e20', color: '#22c55e', borderRadius: 10, padding: '3px 10px', fontWeight: 700 }}>📷 Foto ✓</span>}
+              {assinatura && <span style={{ fontSize: 11, background: '#3b82f620', color: '#3b82f6', borderRadius: 10, padding: '3px 10px', fontWeight: 700 }}>✍️ Assinatura ✓</span>}
+              {obs.trim() && <span style={{ fontSize: 11, background: C.primary+'20', color: C.primary, borderRadius: 10, padding: '3px 10px', fontWeight: 700 }}>📝 Obs ✓</span>}
+            </div>
+          )}
+
+          {/* Foto */}
           {foto ? (
-            <div>
-              <img src={foto} alt="Nota" style={{ width: '100%', borderRadius: 10, border: `1px solid ${C.border}`, maxHeight: 200, objectFit: 'cover' }} />
+            <div style={{ marginBottom: 8 }}>
+              <img src={foto} alt="Nota" style={{ width: '100%', borderRadius: 10, border: `1px solid ${C.border}`, maxHeight: 180, objectFit: 'cover' }} />
               <button onClick={() => setFoto(null)} style={{ background: 'none', border: 'none', color: '#999', fontSize: 12, cursor: 'pointer', marginTop: 4 }}>🗑 Remover foto</button>
             </div>
           ) : (
-            <div>
-              <input ref={fotoRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={handleFoto} />
-              <button onClick={() => fotoRef.current?.click()}
-                style={{ ...S.btn(C.secondary, true), width: '100%' }}>
-                📎 Foto, galeria ou comprovante
-              </button>
-              <div style={{ fontSize: 11, color: C.gold, marginTop: 6 }}>⚠ Sem foto: observação será obrigatória</div>
+            <div style={{ marginBottom: 8 }}>
+              <input ref={fotoRef} type="file" accept="image/*" capture="environment" style={{ display: 'none' }} onChange={handleFoto} />
+              <input ref={galeriaRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={handleFoto} />
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button onClick={() => fotoRef.current?.click()}
+                  style={{ ...S.btn(C.secondary, true), flex: 1 }}>
+                  📷 Câmera
+                </button>
+                <button onClick={() => galeriaRef.current?.click()}
+                  style={{ ...S.btn(C.secondary, true), flex: 1 }}>
+                  🖼️ Galeria
+                </button>
+              </div>
             </div>
           )}
-        </div>
 
-        {/* Observação */}
-        <div>
-          <label style={{ ...S.label, color: !foto ? C.danger : C.textMuted }}>
-            Observação {!foto ? '(obrigatória sem foto) *' : '(opcional)'}
-          </label>
-          <input value={obs} onChange={e => setObs(e.target.value)} style={{ ...S.input, borderColor: !foto && !obs ? C.danger + '88' : C.border }}
-            placeholder={!foto ? 'Ex: não pediu nota fiscal, compra urgente...' : 'Detalhe adicional...'} />
+          {/* Assinatura */}
+          {mostrarAssinatura ? (
+            <SignaturePad
+              onSave={sig => { setAssinatura(sig); setMostrarAssinatura(false) }}
+              onCancel={() => setMostrarAssinatura(false)}
+            />
+          ) : assinatura ? (
+            <div style={{ marginBottom: 8 }}>
+              <img src={assinatura} alt="Assinatura" style={{ width: '100%', border: `1px solid ${C.border}`, borderRadius: 8, maxHeight: 100, objectFit: 'contain' }} />
+              <button onClick={() => setAssinatura(null)} style={{ background: 'none', border: 'none', color: '#999', fontSize: 12, cursor: 'pointer', marginTop: 4 }}>🗑 Remover assinatura</button>
+            </div>
+          ) : (
+            <button onClick={() => setMostrarAssinatura(true)}
+              style={{ ...S.btn(C.gold, true), width: '100%', marginBottom: 8 }}>
+              ✍️ Coletar Assinatura
+            </button>
+          )}
+
+          {/* Observação */}
+          <div>
+            <label style={{ ...S.label, color: !temComprovante ? C.danger : C.textMuted }}>
+              Observação {!foto && !assinatura ? '(obrigatória sem foto ou assinatura)' : '(opcional)'}
+            </label>
+            <input value={obs} onChange={e => setObs(e.target.value)}
+              style={{ ...S.input, borderColor: !temComprovante ? C.danger + '88' : C.border }}
+              placeholder={!foto && !assinatura ? 'Ex: não pediu nota, compra urgente...' : 'Detalhe adicional...'} />
+          </div>
         </div>
 
         <div style={{ display: 'flex', gap: 8 }}>
