@@ -447,7 +447,17 @@ function AppPrincipal({ usuario, onLogout }) {
         if (s.empty) {
           for (const c of CATS_PADRAO) await addDoc(collection(db, 'categorias_despesas'), c)
         } else {
-          setCategorias(s.docs.map(d => ({ id: d.id, ...d.data() })).filter(c => c.ativo))
+          const docs = s.docs.map(d => ({ id: d.id, ...d.data() }))
+          // Se as categorias não têm campo "grupo", são antigas — migra automaticamente
+          const precisaMigrar = docs.every(d => !d.grupo)
+          if (precisaMigrar) {
+            const batch = writeBatch(db)
+            docs.forEach(d => batch.delete(doc(db, 'categorias_despesas', d.id)))
+            await batch.commit()
+            for (const c of CATS_PADRAO) await addDoc(collection(db, 'categorias_despesas'), c)
+          } else {
+            setCategorias(docs.filter(c => c.ativo))
+          }
         }
       }),
       onSnapshot(collection(db, 'pessoas'), s => setPessoas(s.docs.map(d => ({ id: d.id, ...d.data() })))),
