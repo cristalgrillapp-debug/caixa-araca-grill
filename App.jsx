@@ -339,7 +339,7 @@ export default function App() {
 }
 
 function AppPrincipal({ usuario, onLogout }) {
-  const [tab, setTab] = useState('extras')
+  const [tab, setTab] = useState('relatorios')
   const [extras, setExtras] = useState([])
   const [pessoas, setPessoas] = useState([])
   const [setores, setSetores] = useState([])
@@ -348,7 +348,11 @@ function AppPrincipal({ usuario, onLogout }) {
   const [despesas, setDespesas] = useState([])
   const [categorias, setCategorias] = useState([])
   const [config, setConfig] = useState(DEFAULT_CONFIG)
-  const today = todayOp(config)
+  const [turnoAtivo, setTurnoAtivo] = useState(null)   // { id, data_op, aberto_em, aberto_por }
+  const [carregandoTurno, setCarregandoTurno] = useState(true)
+
+  // today vem do turno ativo — se não tiver, usa data real
+  const today = turnoAtivo?.data_op || toDateStr(new Date())
 
   const updateConfig = async (changes) => {
     const novo = { ...config, ...changes }
@@ -402,6 +406,18 @@ function AppPrincipal({ usuario, onLogout }) {
     ]
 
     const unsubs = [
+      // Turno ativo — escuta em tempo real
+      onSnapshot(
+        query(collection(db, 'turnos'), where('status', '==', 'aberto'), limit(1)),
+        s => {
+          if (!s.empty) {
+            setTurnoAtivo({ id: s.docs[0].id, ...s.docs[0].data() })
+          } else {
+            setTurnoAtivo(null)
+          }
+          setCarregandoTurno(false)
+        }
+      ),
       onSnapshot(qExtras, s => setExtras(s.docs.map(d => ({ id: d.id, ...d.data() })))),
       onSnapshot(qVales, s => setVales(s.docs.map(d => ({ id: d.id, ...d.data() })))),
       onSnapshot(qDespesas, s => setDespesas(s.docs.map(d => ({ id: d.id, ...d.data() })))),
@@ -456,6 +472,64 @@ function AppPrincipal({ usuario, onLogout }) {
   const updateCategoria = async (id, data) => await updateDoc(doc(db, 'categorias_despesas', id), data)
   const removeCategoria = async (id) => await deleteDoc(doc(db, 'categorias_despesas', id))
 
+  const abrirTurno = async () => {
+    const dataOp = toDateStr(new Date())
+    const ref = await addDoc(collection(db, 'turnos'), {
+      data_op:   dataOp,
+      aberto_em: new Date().toISOString(),
+      aberto_por: usuario.nome,
+      status:    'aberto',
+    })
+    // turnoAtivo será atualizado pelo listener
+  }
+
+  const encerrarTurno = async () => {
+    if (!turnoAtivo) return
+    const pagos     = extras.filter(e => e.data_op === today && e.pago)
+    const pendentes = extras.filter(e => e.data_op === today && !e.pago)
+
+    if (pendentes.length > 0) {
+      const msg = `Existem ${pendentes.length} pagamento(s) pendente(s):\n\n${pendentes.map(e => `• ${e.nome}: ${fmt(e.valor_final)}`).join('\n')}\n\nDeseja encerrar mesmo assim?`
+      if (!confirm(msg)) return
+    }
+
+    const confirmacao = prompt(`Digite "ENCERRAR" para fechar o turno de ${dayLabel(today)}.`)
+    if (confirmacao !== 'ENCERRAR') return
+
+    try {
+      const agora = new Date().toISOString()
+      const batch = writeBatch(db)
+
+      // Marca extras pagos como encerrados
+      pagos.forEach(e => batch.update(doc(db, 'extras', e.id), {
+        encerrado: true, data_encerramento: agora,
+      }))
+
+      // Fecha o turno
+      batch.update(doc(db, 'turnos', turnoAtivo.id), {
+        status:       'encerrado',
+        encerrado_em: agora,
+        encerrado_por: usuario.nome,
+        total_extras:  pagos.reduce((a, e) => a + e.valor_final, 0),
+        qtd_extras:    pagos.length,
+      })
+
+      await batch.commit()
+
+      await addDoc(collection(db, 'logs'), {
+        usuario_id: usuario.id, usuario_nome: usuario.nome,
+        acao: 'encerramento_turno',
+        detalhes: { data_op: today, pagos_encerrados: pagos.length, pendentes: pendentes.length },
+        data: agora, data_op: today,
+      })
+
+      alert(`✅ Turno de ${dayLabel(today)} encerrado!\n${pagos.length} pagamento(s) registrado(s).`)
+    } catch (err) {
+      alert('Erro ao encerrar turno. Tente novamente.')
+      console.error(err)
+    }
+  }
+
   const registrarLog = async (acao, detalhes = {}) => {
     try {
       await addDoc(collection(db, 'logs'), {
@@ -470,7 +544,7 @@ function AppPrincipal({ usuario, onLogout }) {
     } catch (e) { console.warn('Log falhou:', e) }
   }
 
-  const store = { extras, vales, despesas, categorias, pessoas, setores, config, updateConfig, addExtra, updateExtra, removeExtra, addPessoa, updatePessoa, removePessoa, addSetor, updateSetor, removeSetor, addVale, updateVale, removeVale, addDespesa, updateDespesa, removeDespesa, addCategoria, updateCategoria, removeCategoria, usuario, onLogout, registrarLog }
+  const store = { extras, vales, despesas, categorias, pessoas, setores, config, turnoAtivo, updateConfig, addExtra, updateExtra, removeExtra, addPessoa, updatePessoa, removePessoa, addSetor, updateSetor, removeSetor, addVale, updateVale, removeVale, addDespesa, updateDespesa, removeDespesa, addCategoria, updateCategoria, removeCategoria, usuario, onLogout, registrarLog }
 
   const tabs = [
     { id: 'extras', icon: '👤', label: 'Extras' },
@@ -481,6 +555,8 @@ function AppPrincipal({ usuario, onLogout }) {
     ...(usuario?.role === 'admin' ? [{ id: 'config', icon: '⚙️', label: 'Config' }] : []),
   ]
 
+  const ABAS_BLOQUEADAS = ['extras','pagamentos','lancamentos','vales']
+
   return (
     <div style={S.app}>
       <div style={S.header}>
@@ -490,30 +566,64 @@ function AppPrincipal({ usuario, onLogout }) {
             <div style={{ fontSize: 22, fontWeight: 900, color: '#ffffff', letterSpacing: '-0.03em' }}>{config.nome_estabelecimento}</div>
           </div>
           <div style={{ textAlign: 'right' }}>
-            <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.5)' }}>Data operacional</div>
-            <div style={{ fontSize: 13, color: '#ffffff', fontWeight: 700 }}>{dayLabel(today)}</div>
-            {(() => {
-              const hoje = new Date()
-              const hojeStr = hoje.toISOString().slice(0,10)
-              const diferente = today !== hojeStr
-              return diferente ? (
-                <div style={{ fontSize: 10, background: '#9a752044', border: '1px solid #9a752088', borderRadius: 4, padding: '2px 6px', color: '#fbbf24', fontWeight: 700, marginTop: 2 }}>
-                  ⚠️ Operando em {dayLabel(today)}
-                </div>
-              ) : null
-            })()}
-            <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.4)', marginTop: 2 }}>👤 {usuario.nome}</div>
-            <button onClick={onLogout} style={{ background: 'rgba(255,255,255,0.1)', border: 'none', borderRadius: 6, color: 'rgba(255,255,255,0.7)', fontSize: 10, padding: '3px 8px', cursor: 'pointer', marginTop: 3, fontWeight: 700 }}>Sair</button>
+            {turnoAtivo ? (
+              <>
+                <div style={{ fontSize: 10, color: '#22c55e', fontWeight: 700 }}>🟢 TURNO ABERTO</div>
+                <div style={{ fontSize: 13, color: '#ffffff', fontWeight: 700 }}>{dayLabel(today)}</div>
+                <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.4)', marginTop: 2 }}>👤 {usuario.nome}</div>
+                <button onClick={encerrarTurno}
+                  style={{ background: '#a8322888', border: '1px solid #a8322899', borderRadius: 6, color: '#fca5a5', fontSize: 10, padding: '3px 8px', cursor: 'pointer', marginTop: 3, fontWeight: 700 }}>
+                  🔒 Encerrar Turno
+                </button>
+              </>
+            ) : (
+              <>
+                <div style={{ fontSize: 10, color: '#f59e0b', fontWeight: 700 }}>⏸ SEM TURNO</div>
+                <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.4)', marginTop: 2 }}>👤 {usuario.nome}</div>
+                <button onClick={onLogout} style={{ background: 'rgba(255,255,255,0.1)', border: 'none', borderRadius: 6, color: 'rgba(255,255,255,0.7)', fontSize: 10, padding: '3px 8px', cursor: 'pointer', marginTop: 3, fontWeight: 700 }}>Sair</button>
+              </>
+            )}
           </div>
         </div>
       </div>
+
       <div style={S.content}>
-        {tab === 'extras'      && <TabExtras store={store} today={today} setModal={setModal} />}
-        {tab === 'pagamentos'  && <TabPagamentos store={store} today={today} setModal={setModal} />}
-        {tab === 'lancamentos' && <TabLancamentos store={store} today={today} />}
-        {tab === 'vales'      && <TabVales store={store} today={today} setModal={setModal} />}
-        {tab === 'relatorios'  && <TabRelatorios store={store} />}
-        {tab === 'config'      && <TabConfig store={store} setModal={setModal} />}
+        {/* Tela de abertura de turno — abas operacionais bloqueadas */}
+        {!carregandoTurno && !turnoAtivo && ABAS_BLOQUEADAS.includes(tab) && (
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minHeight: '60vh', gap: 16, padding: 24 }}>
+            <div style={{ fontSize: 64 }}>⏸</div>
+            <div style={{ fontSize: 20, fontWeight: 800, color: C.text, textAlign: 'center' }}>Nenhum turno aberto</div>
+            <div style={{ fontSize: 14, color: C.textMuted, textAlign: 'center', maxWidth: 280, lineHeight: 1.6 }}>
+              Abra o turno para começar a lançar extras, pagamentos e saídas do dia.
+            </div>
+            <button onClick={abrirTurno}
+              style={{ ...S.btn(C.success), fontSize: 18, fontWeight: 900, padding: '18px 40px', borderRadius: 16, boxShadow: '0 4px 20px rgba(46,107,71,0.4)' }}>
+              🟢 Abrir Turno
+            </button>
+            <div style={{ fontSize: 12, color: C.textMuted }}>
+              Será registrado como {dayLabel(toDateStr(new Date()))}
+            </div>
+          </div>
+        )}
+
+        {/* Conteúdo normal — turno aberto ou abas liberadas */}
+        {(turnoAtivo || !ABAS_BLOQUEADAS.includes(tab)) && !carregandoTurno && (
+          <>
+            {tab === 'extras'      && <TabExtras store={store} today={today} setModal={setModal} />}
+            {tab === 'pagamentos'  && <TabPagamentos store={store} today={today} setModal={setModal} />}
+            {tab === 'lancamentos' && <TabLancamentos store={store} today={today} />}
+            {tab === 'vales'       && <TabVales store={store} today={today} setModal={setModal} />}
+            {tab === 'relatorios'  && <TabRelatorios store={store} />}
+            {tab === 'config'      && <TabConfig store={store} setModal={setModal} />}
+          </>
+        )}
+
+        {carregandoTurno && (
+          <div style={{ textAlign: 'center', padding: 60, color: C.textMuted }}>
+            <div style={{ fontSize: 32 }}>⏳</div>
+            <div style={{ marginTop: 8 }}>Verificando turno...</div>
+          </div>
+        )}
       </div>
       <div style={S.nav}>
         {tabs.map(t => (
@@ -606,67 +716,16 @@ function TabExtras({ store, today, setModal }) {
     alert(`✅ ${duplicados} extras duplicados com sucesso!`)
   }
   
-  const encerrarDia = async () => {
-    const todayExtras = extras.filter(e => e.data_op === today)
-    const pagos = todayExtras.filter(e => e.pago)
-    const pendentes = todayExtras.filter(e => !e.pago)
-    
-    if (pendentes.length > 0) {
-      const msg = `Existem ${pendentes.length} pagamento(s) pendente(s):\n\n${pendentes.map(e => `• ${e.nome}: ${fmt(e.valor_final)}`).join('\n')}\n\nDeseja continuar mesmo assim?`
-      if (!confirm(msg)) return
-    }
-    
-    if (pagos.length === 0) {
-      alert('Nenhum pagamento confirmado para encerrar.')
-      return
-    }
-    
-    const confirmacao = prompt(`Digite "ENCERRAR" para confirmar o encerramento do dia com ${pagos.length} pagamento(s) confirmado(s).`)
-    if (confirmacao !== 'ENCERRAR') return
-    
-    try {
-      // Usa batch para deletar todos os pagamentos confirmados do dia
-      const batch = writeBatch(db)
-      pagos.forEach(e => {
-        batch.delete(doc(db, 'extras', e.id))
-      })
-      await batch.commit()
-      
-      await registrarLog('encerramento_dia', {
-        data_op: today,
-        pagos_removidos: pagos.length,
-        pendentes_restantes: pendentes.length,
-      })
-      
-      alert(`✅ Dia encerrado! ${pagos.length} pagamento(s) removido(s).\n${pendentes.length} pendente(s) permanecerá(ão).`)
-    } catch (err) {
-      alert('Erro ao encerrar o dia. Tente novamente.')
-      console.error(err)
-    }
-  }
-
-  const hojeReal = new Date().toISOString().slice(0,10)
+  const hojeReal = toDateStr(new Date())
   const diaVirado = today !== hojeReal
 
   return (
     <div>
-      {diaVirado && (
-        <div style={{ background: '#9a752015', border: `1px solid ${C.gold}88`, borderRadius: 12, padding: '10px 14px', marginBottom: 14, display: 'flex', alignItems: 'center', gap: 8 }}>
-          <span style={{ fontSize: 18 }}>⚠️</span>
-          <div>
-            <div style={{ fontSize: 13, fontWeight: 800, color: C.gold }}>Operando em: {dayLabel(today)}</div>
-            <div style={{ fontSize: 11, color: C.textMuted }}>A virada ainda não ocorreu. Lançamentos vão para {dayLabel(today)}.</div>
-          </div>
-        </div>
-      )}
       <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
         <button onClick={() => setModal({ type: 'addExtra' })} style={{ ...S.btn(C.primary), flex: 3 }}>✦ Novo Extra</button>
         <button onClick={() => setModal({ type: 'addPessoa' })} style={{ ...S.btn(C.accent), flex: 2 }}>+ Pessoa</button>
         <button onClick={duplicar} style={{ ...S.btn(C.secondary, true), flex: 2 }}>📋 Duplicar</button>
       </div>
-      {extras.filter(e => e.data_op === today && e.pago).length > 0 && (
-        <button onClick={encerrarDia} style={{ ...S.btn(C.danger), width: '100%', marginBottom: 12 }}>🔒 Encerrar Dia</button>
-      )}
       <div style={{ ...S.card, background: 'linear-gradient(135deg,#1a1a2e,#2d2340)', color: '#fff' }}>
         <div style={{ fontSize: 11, color: '#c9a96e', textTransform: 'uppercase' }}>Total do Dia</div>
         <div style={{ fontSize: 28, fontWeight: 700, color: '#c9a96e' }}>{fmt(total)}</div>
