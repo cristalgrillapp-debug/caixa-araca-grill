@@ -553,6 +553,8 @@ function AppPrincipal({ usuario, onLogout }) {
     { id: 'vales', icon: '💸', label: 'Saídas' },
     { id: 'relatorios', icon: '📊', label: 'Dashboard' },
     ...(usuario?.role === 'admin' ? [{ id: 'config', icon: '⚙️', label: 'Config' }] : []),
+    ...(usuario?.role === 'admin' ? [{ id: 'importar', icon: '📥', label: 'Import' }] : []),
+    ...(usuario?.role === 'admin' ? [{ id: 'importar', icon: '📥', label: 'Import' }] : []),
   ]
 
   const ABAS_BLOQUEADAS = ['extras','pagamentos','lancamentos','vales']
@@ -615,6 +617,7 @@ function AppPrincipal({ usuario, onLogout }) {
             {tab === 'vales'       && <TabVales store={store} today={today} setModal={setModal} />}
             {tab === 'relatorios'  && <TabRelatorios store={store} />}
             {tab === 'config'      && <TabConfig store={store} setModal={setModal} />}
+            {tab === 'importar'    && <TabImportarExtras14 db={db} store={store} />}
           </>
         )}
 
@@ -4740,5 +4743,129 @@ function ModalNovaDespesa({ store, today, onClose }) {
         </div>
       </div>
     </Modal>
+  )
+}
+
+// ─── IMPORTADOR EXTRAS 16/05 (TEMPORÁRIO) ────────────────────────────────────
+
+function TabImportarExtras14({ db, store }) {
+  const { setores, pessoas } = store
+  const [status, setStatus] = useState('idle')
+  const [log, setLog] = useState([])
+
+  const EXTRAS = [
+    { nome:'JOAO GABRIEL',     funcao:'MÚSICO',      turnos:'TN',    setor_nome:'Música',      valor:40000, forma:'dinheiro' },
+    { nome:'AMANDA OLIVEIRA',  funcao:'AUX BAR',     turnos:'TN',    setor_nome:'Bar',         valor:6000,  forma:'dinheiro' },
+    { nome:'MARTA FERREIRA',   funcao:'COZINHEIRA',  turnos:'TD',    setor_nome:'Cozinha',     valor:12000, forma:'pix'      },
+    { nome:'CAMILA NEVES',     funcao:'AUX COZ',     turnos:'TD',    setor_nome:'Cozinha',     valor:10000, forma:'dinheiro' },
+    { nome:'KAIO AREVALO',     funcao:'GARCOM',      turnos:'TD',    setor_nome:'Atendimento', valor:8000,  forma:'dinheiro' },
+    { nome:'STEPHANI MARQUES', funcao:'CAIXA',       turnos:'TD+TN', setor_nome:'Caixa',       valor:16000, forma:'dinheiro' },
+    { nome:'PERLA GOMES',      funcao:'AUX COZ',     turnos:'TD+TN', setor_nome:'Cozinha',     valor:20000, forma:'dinheiro' },
+    { nome:'CAIO HENRIQUE',    funcao:'CUMIM',       turnos:'TN',    setor_nome:'Cumim',       valor:10000, forma:'dinheiro' },
+    { nome:'FABINHO',          funcao:'MÚSICO',      turnos:'TD',    setor_nome:'Música',      valor:20000, forma:'dinheiro' },
+    { nome:'RENATO NERIS',     funcao:'BAR',         turnos:'TD',    setor_nome:'Bar',         valor:10000, forma:'dinheiro' },
+    { nome:'RONALDO SOARES',   funcao:'AUX COZ',     turnos:'TN',    setor_nome:'Cozinha',     valor:10000, forma:'dinheiro' },
+    { nome:'ANA LAURA',        funcao:'KIDS',        turnos:'TN',    setor_nome:'Kids',        valor:8000,  forma:'dinheiro' },
+    { nome:'PATRICIA KIILL',   funcao:'AUX COZINHA', turnos:'TD+TN', setor_nome:'Cozinha',     valor:20000, forma:'dinheiro' },
+    { nome:'JOSE MORAES',      funcao:'AUX COZ',     turnos:'TN',    setor_nome:'Cozinha',     valor:10000, forma:'pix'      },
+  ]
+
+  const importar = async () => {
+    if (!confirm('Importar os 14 extras do dia 16/05?\nTotal: R$ 2.000,00')) return
+    setStatus('importando')
+    setLog([])
+    try {
+      const agora = new Date().toISOString()
+      const setMap = {}
+      setores.forEach(s => { setMap[s.nome] = s.id })
+      const pesMap = {}
+      pessoas.forEach(p => { pesMap[p.nome?.toUpperCase()] = p.id })
+
+      for (const e of EXTRAS) {
+        await addDoc(collection(db, 'extras'), {
+          pessoa_id:          pesMap[e.nome.toUpperCase()] || null,
+          nome:               e.nome,
+          funcao:             e.funcao,
+          turnos:             e.turnos,
+          setor_id:           setMap[e.setor_nome] || null,
+          obs:                '',
+          data_op:            '2026-05-16',
+          data_real:          '2026-05-16',
+          valor_extra:        e.valor,
+          valor_original:     e.valor,
+          valor_final:        e.valor,
+          valor_pago:         e.valor,
+          desconto_troco:     0,
+          troco_gerado:       0,
+          pago:               true,
+          forma_pagamento:    e.forma,
+          lancado:            false,
+          encerrado:          true,
+          data_encerramento:  agora,
+          trocos_descontados: [],
+          assinatura:         null,
+          previsao:           e.forma,
+          importado:          true,
+          importado_em:       agora,
+        })
+        setLog(p => [...p, '✓ ' + e.nome + ' — ' + fmt(e.valor) + ' (' + e.forma + ')'])
+      }
+      setStatus('feito')
+    } catch (err) {
+      setLog(p => [...p, '❌ Erro: ' + err.message])
+      setStatus('erro')
+    }
+  }
+
+  return (
+    <div style={{ padding: 4 }}>
+      <div style={{ background: '#1a0808', border: '1px solid #a8322844', borderRadius: 14, padding: 16, marginBottom: 14 }}>
+        <div style={{ fontSize: 15, fontWeight: 800, color: '#fca5a5' }}>📥 Restaurar Extras — 16/05</div>
+        <div style={{ fontSize: 12, color: '#ff6b6b80', marginTop: 4 }}>14 extras · R$ 2.000,00 · Remova esta aba após importar.</div>
+      </div>
+
+      {/* Lista prévia */}
+      {status === 'idle' && (
+        <div style={{ background: '#f7f6f3', borderRadius: 12, padding: 14, marginBottom: 14, border: '1px solid #e4ddd4' }}>
+          {EXTRAS.map((e, i) => (
+            <div key={i} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, padding: '4px 0', borderBottom: '1px solid #f0e8d8' }}>
+              <span style={{ color: '#333' }}>{e.nome} · {e.funcao} {e.turnos}</span>
+              <span style={{ fontWeight: 700, color: e.forma === 'pix' ? '#3b82f6' : '#22c55e' }}>{fmt(e.valor)}</span>
+            </div>
+          ))}
+          <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 800, fontSize: 14, paddingTop: 8, marginTop: 4, borderTop: '2px solid #e4ddd4' }}>
+            <span>Total</span><span style={{ color: '#b5763a' }}>{fmt(200000)}</span>
+          </div>
+        </div>
+      )}
+
+      {status === 'idle' && (
+        <button onClick={importar}
+          style={{ ...S.btn(C.success), width: '100%', fontSize: 16, fontWeight: 900, padding: '16px' }}>
+          📥 Importar 14 Extras
+        </button>
+      )}
+
+      {status === 'importando' && (
+        <div style={{ textAlign: 'center', padding: 24, color: C.primary, fontWeight: 700, fontSize: 15 }}>⏳ Importando...</div>
+      )}
+
+      {log.length > 0 && (
+        <div style={{ background: '#0d1f14', borderRadius: 12, padding: 14, marginTop: 14, maxHeight: 320, overflowY: 'auto' }}>
+          {log.map((l, i) => (
+            <div key={i} style={{ fontFamily: 'monospace', fontSize: 12, color: l.startsWith('❌') ? '#fca5a5' : '#6ee7b7', marginBottom: 3 }}>{l}</div>
+          ))}
+        </div>
+      )}
+
+      {status === 'feito' && (
+        <div style={{ marginTop: 14, background: '#0d1f14', border: '1px solid #22c55e44', borderRadius: 12, padding: 16, textAlign: 'center' }}>
+          <div style={{ fontSize: 16, fontWeight: 800, color: '#22c55e' }}>✅ 14 extras restaurados!</div>
+          <div style={{ fontSize: 12, color: '#6ee7b7', marginTop: 6, lineHeight: 1.6 }}>
+            Verifique no Dashboard → filtro 16/05.<br/>Depois remova a aba "Import" do App.jsx.
+          </div>
+        </div>
+      )}
+    </div>
   )
 }
