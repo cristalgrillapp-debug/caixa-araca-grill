@@ -351,6 +351,7 @@ function AppPrincipal({ usuario, onLogout }) {
   const [config, setConfig] = useState(DEFAULT_CONFIG)
   const [turnoAtivo, setTurnoAtivo] = useState(null)   // { id, data_op, aberto_em, aberto_por }
   const [carregandoTurno, setCarregandoTurno] = useState(true)
+  const migrandoCats = useRef(false)
 
   // today vem do turno ativo — se não tiver, usa data real
   const today = turnoAtivo?.data_op || toDateStr(new Date())
@@ -444,19 +445,23 @@ function AppPrincipal({ usuario, onLogout }) {
       onSnapshot(qVales, s => setVales(s.docs.map(d => ({ id: d.id, ...d.data() })))),
       onSnapshot(qDespesas, s => setDespesas(s.docs.map(d => ({ id: d.id, ...d.data() })))),
       onSnapshot(collection(db, 'categorias_despesas'), async s => {
+        if (migrandoCats.current) return
         if (s.empty) {
+          migrandoCats.current = true
           for (const c of CATS_PADRAO) await addDoc(collection(db, 'categorias_despesas'), c)
+          migrandoCats.current = false
         } else {
           const docs = s.docs.map(d => ({ id: d.id, ...d.data() }))
-          // Migra se: todas sem "grupo" (antigas) OU existem nomes duplicados
           const semGrupo = docs.every(d => !d.grupo)
           const nomes = docs.map(d => d.nome)
           const temDuplicata = nomes.length !== new Set(nomes).size
           if (semGrupo || temDuplicata) {
+            migrandoCats.current = true
             const batch = writeBatch(db)
             docs.forEach(d => batch.delete(doc(db, 'categorias_despesas', d.id)))
             await batch.commit()
             for (const c of CATS_PADRAO) await addDoc(collection(db, 'categorias_despesas'), c)
+            migrandoCats.current = false
           } else {
             setCategorias(docs.filter(c => c.ativo))
           }
