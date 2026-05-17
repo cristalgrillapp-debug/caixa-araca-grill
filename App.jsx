@@ -396,14 +396,35 @@ function AppPrincipal({ usuario, onLogout }) {
     )
 
     const CATS_PADRAO = [
-      { emoji: '🛒', nome: 'Compras', ativo: true },
-      { emoji: '🎮', nome: 'Fichas/Tokens', ativo: true },
-      { emoji: '🔧', nome: 'Manutenção', ativo: true },
-      { emoji: '🧹', nome: 'Limpeza', ativo: true },
-      { emoji: '🚗', nome: 'Transporte', ativo: true },
-      { emoji: '📦', nome: 'Estoque', ativo: true },
-      { emoji: '💊', nome: 'Farmácia', ativo: true },
-      { emoji: '📝', nome: 'Outros', ativo: true },
+      // ── ESTOQUE ──
+      { emoji:'🥑', nome:'Hortifruti / Alface',    grupo:'estoque',    cor:'#22c55e', favorita:true,  ordem:1, ativo:true, alertar_se_aumentar:false, threshold_mensal:0, descricoes_sugeridas:['Hortifruti','Alface','Verduras e legumes','Tomate','Cebola'] },
+      { emoji:'🍌', nome:'Compra de Banana',        grupo:'estoque',    cor:'#eab308', favorita:false, ordem:2, ativo:true, alertar_se_aumentar:false, threshold_mensal:0, descricoes_sugeridas:['Banana prata','Banana nanica','Banana da terra'] },
+      { emoji:'🍞', nome:'Compra de Pão',           grupo:'estoque',    cor:'#f97316', favorita:false, ordem:3, ativo:true, alertar_se_aumentar:false, threshold_mensal:0, descricoes_sugeridas:['Pão de hambúrguer','Pão francês','Pão de forma'] },
+      { emoji:'🍔', nome:'Compra de Hambúrguer',    grupo:'estoque',    cor:'#b45309', favorita:true,  ordem:4, ativo:true, alertar_se_aumentar:false, threshold_mensal:0, descricoes_sugeridas:['Hambúrguer artesanal','Blend bovino','Hambúrguer congelado'] },
+      { emoji:'⚡', nome:'Compra de Energético',    grupo:'estoque',    cor:'#7c3aed', favorita:false, ordem:5, ativo:true, alertar_se_aumentar:false, threshold_mensal:0, descricoes_sugeridas:['Red Bull','Monster','Energético TNT'] },
+      { emoji:'🛒', nome:'Mercado',                 grupo:'estoque',    cor:'#0ea5e9', favorita:true,  ordem:6, ativo:true, alertar_se_aumentar:false, threshold_mensal:0, descricoes_sugeridas:['Compra no mercado','Supermercado','Atacado'] },
+      // ── EMERGÊNCIA ──
+      { emoji:'🚨', nome:'Compra Emergencial',      grupo:'emergencia', cor:'#ef4444', favorita:false, ordem:1, ativo:true, alertar_se_aumentar:true,  threshold_mensal:3, descricoes_sugeridas:['Faltou...','Compra urgente de...','Emergência de...'] },
+      { emoji:'⏰', nome:'Reposição Urgente',        grupo:'emergencia', cor:'#f97316', favorita:false, ordem:2, ativo:true, alertar_se_aumentar:true,  threshold_mensal:2, descricoes_sugeridas:['Reposição urgente de...','Acabou...','Faltou estoque de...'] },
+      // ── OPERACIONAL ──
+      { emoji:'🛵', nome:'Motoboy Avulso',          grupo:'operacional', cor:'#0ea5e9', favorita:true,  ordem:1, ativo:true, alertar_se_aumentar:true,  threshold_mensal:8, descricoes_sugeridas:['Motoboy','Entrega avulsa','Frete moto'] },
+      { emoji:'⛽', nome:'Combustível',              grupo:'operacional', cor:'#6b7280', favorita:false, ordem:2, ativo:true, alertar_se_aumentar:false, threshold_mensal:0, descricoes_sugeridas:['Gasolina','Combustível Allan','Combustível moto','Gasolina entrega'] },
+      { emoji:'🔧', nome:'Manutenção',              grupo:'operacional', cor:'#78716c', favorita:false, ordem:3, ativo:true, alertar_se_aumentar:true,  threshold_mensal:2, descricoes_sugeridas:['Conserto','Manutenção equipamento','Reparo','Troca de peça'] },
+      { emoji:'🎮', nome:'Fichas / Tokens',          grupo:'operacional', cor:'#8b5cf6', favorita:false, ordem:4, ativo:true, alertar_se_aumentar:false, threshold_mensal:0, descricoes_sugeridas:['Fichas','Tokens','Créditos sistema'] },
+      { emoji:'🧹', nome:'Limpeza',                  grupo:'operacional', cor:'#06b6d4', favorita:false, ordem:5, ativo:true, alertar_se_aumentar:false, threshold_mensal:0, descricoes_sugeridas:['Material de limpeza','Produto limpeza','Desinfetante'] },
+      // ── PESSOAL ──
+      { emoji:'🍱', nome:'Alimentação da Equipe',   grupo:'pessoal',    cor:'#10b981', favorita:true,  ordem:1, ativo:true, alertar_se_aumentar:false, threshold_mensal:0, descricoes_sugeridas:['Almoço equipe','Jantar equipe','Lanche equipe','Refeição turno'] },
+      { emoji:'🎁', nome:'Bonificação',              grupo:'pessoal',    cor:'#f59e0b', favorita:false, ordem:2, ativo:true, alertar_se_aumentar:false, threshold_mensal:0, descricoes_sugeridas:['Bonificação','Gratificação','Premiação','Bônus'] },
+      { emoji:'⚖️', nome:'Diferença Salarial',      grupo:'financeiro', cor:'#6366f1', favorita:false, ordem:1, ativo:true, alertar_se_aumentar:false, threshold_mensal:0, descricoes_sugeridas:['Acerto salarial','Diferença','Complemento pagamento'] },
+      // ── SAÚDE DA EQUIPE ──
+      { emoji:'💊', nome:'Farmácia',                 grupo:'saude',      cor:'#ec4899', favorita:false, ordem:1, ativo:true, alertar_se_aumentar:true,  threshold_mensal:3, descricoes_sugeridas:['Remédio','Farmácia','Medicamento','Analgésico'] },
+      // ── CORREÇÕES ──
+      { emoji:'↩️', nome:'Devolução para Cliente',  grupo:'correcoes',  cor:'#ef4444', favorita:false, ordem:1, ativo:true, alertar_se_aumentar:true,  threshold_mensal:2, descricoes_sugeridas:['Devolução cliente','Estorno','Reembolso cliente'] },
+      { emoji:'❌', nome:'Valor Cobrado Errado',     grupo:'correcoes',  cor:'#f97316', favorita:false, ordem:2, ativo:true, alertar_se_aumentar:true,  threshold_mensal:2, descricoes_sugeridas:['Cobrança errada','Cobrado a maior','Erro de cobrança'] },
+      { emoji:'🔄', nome:'Devolução para Funcionário', grupo:'correcoes', cor:'#8b5cf6', favorita:false, ordem:3, ativo:true, alertar_se_aumentar:false, threshold_mensal:0, descricoes_sugeridas:['Devolução funcionário','Acerto interno','Estorno funcionário'] },
+      { emoji:'✏️', nome:'Correção de Cobrança',    grupo:'correcoes',  cor:'#f59e0b', favorita:false, ordem:4, ativo:true, alertar_se_aumentar:true,  threshold_mensal:3, descricoes_sugeridas:['Correção','Ajuste cobrança','Desconto aplicado'] },
+      // ── OUTROS ──
+      { emoji:'📝', nome:'Outros',                   grupo:'outros',     cor:'#9ca3af', favorita:false, ordem:1, ativo:true, alertar_se_aumentar:false, threshold_mensal:0, descricoes_sugeridas:[] },
     ]
 
     const unsubs = [
@@ -4871,70 +4892,144 @@ function SecaoFotos({ store }) {
 const EMOJIS_COMUNS = ['🛒','🎮','🔧','🧹','🚗','📦','💊','📝','🍺','🧃','🍖','🧂','🧊','💡','🔌','🪣','🧴','🛠️','🎯','📱','💰','🏪','🏬','🍕','☕','🥤','🧺','🪴','🔑','📋']
 
 function SecaoCategorias({ store }) {
-  const { addCategoria, removeCategoria } = store
+  const { addCategoria, removeCategoria, updateCategoria } = store
   const [cats, setCats] = useState([])
-  const [novoNome, setNovoNome] = useState('')
+  const [editandoId, setEditandoId] = useState(null)
+  const [novoNome, setNovoNome]   = useState('')
   const [novoEmoji, setNovoEmoji] = useState('📝')
-  const [mostrarEmojis, setMostrarEmojis] = useState(false)
+  const [novoGrupo, setNovoGrupo] = useState('outros')
+  const [novoCor, setNovoCor]     = useState('#9ca3af')
+  const [mostrarForm, setMostrarForm] = useState(false)
 
   useEffect(() => {
     const unsub = onSnapshot(collection(db, 'categorias_despesas'), s => {
-      setCats(s.docs.map(d => ({ id: d.id, ...d.data() })).sort((a,b) => a.nome.localeCompare(b.nome)))
+      setCats(s.docs.map(d => ({ id: d.id, ...d.data() })))
     })
     return unsub
   }, [])
 
+  const GRUPOS = [
+    { id:'estoque',    label:'📦 Estoque'      },
+    { id:'emergencia', label:'🚨 Emergência'    },
+    { id:'operacional',label:'⚙️ Operacional'   },
+    { id:'pessoal',    label:'👥 Pessoal'       },
+    { id:'saude',      label:'💊 Saúde equipe'  },
+    { id:'financeiro', label:'💰 Financeiro'    },
+    { id:'correcoes',  label:'↩️ Correções'     },
+    { id:'outros',     label:'📝 Outros'        },
+  ]
+  const GRUPO_LABEL = Object.fromEntries(GRUPOS.map(g => [g.id, g.label]))
+
+  const catsPorGrupo = useMemo(() => {
+    const map = {}
+    cats.sort((a,b)=>(a.ordem||99)-(b.ordem||99)).forEach(c => {
+      const g = c.grupo || 'outros'
+      if (!map[g]) map[g] = []
+      map[g].push(c)
+    })
+    return map
+  }, [cats])
+
   const adicionar = async () => {
     if (!novoNome.trim()) return alert('Digite o nome da categoria.')
-    await addCategoria({ emoji: novoEmoji, nome: novoNome.trim(), ativo: true })
-    setNovoNome(''); setNovoEmoji('📝'); setMostrarEmojis(false)
+    await addCategoria({
+      emoji: novoEmoji, nome: novoNome.trim(), grupo: novoGrupo, cor: novoCor,
+      ativo: true, favorita: false, ordem: 99, alertar_se_aumentar: false,
+      threshold_mensal: 0, descricoes_sugeridas: [],
+    })
+    setNovoNome(''); setNovoEmoji('📝'); setNovoGrupo('outros'); setNovoCor('#9ca3af')
+    setMostrarForm(false)
   }
 
-  const remover = async (id, nome) => {
-    if (!confirm(`Remover categoria "${nome}"?`)) return
-    await removeCategoria(id)
-  }
+  const toggle = (id, campo, valor) => updateCategoria(id, { [campo]: valor })
 
   return (
     <div style={S.card}>
-      <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 12 }}>🏷️ Categorias de Despesas</div>
+      <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 4 }}>🏷️ Categorias de Despesas</div>
+      <div style={{ fontSize: 12, color: C.textMuted, marginBottom: 14 }}>
+        {cats.filter(c=>c.ativo).length} ativas · {cats.filter(c=>c.favorita).length} favoritas
+      </div>
 
-      {cats.map(c => (
-        <div key={c.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 0', borderBottom: `1px solid ${C.border}` }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <span style={{ fontSize: 20 }}>{c.emoji}</span>
-            <span style={{ fontSize: 14, fontWeight: 600 }}>{c.nome}</span>
+      {GRUPOS.map(({ id: grupoId, label: grupoLabel }) => {
+        const lista = catsPorGrupo[grupoId] || []
+        if (!lista.length) return null
+        return (
+          <div key={grupoId} style={{ marginBottom: 18 }}>
+            <div style={{ fontSize: 11, fontWeight: 800, color: C.textMuted, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8 }}>
+              {grupoLabel}
+            </div>
+            {lista.map(c => (
+              <div key={c.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '9px 0', borderBottom: `1px solid ${C.border}` }}>
+                <span style={{ fontSize: 20, width: 28 }}>{c.emoji}</span>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: c.ativo ? C.text : C.textDim }}>{c.nome}</div>
+                  <div style={{ display: 'flex', gap: 6, marginTop: 3, flexWrap: 'wrap' }}>
+                    {c.alertar_se_aumentar && (
+                      <span style={{ fontSize: 9, background: '#ef444420', color: '#ef4444', borderRadius: 8, padding: '2px 6px', fontWeight: 700 }}>
+                        ⚠️ Alerta se &gt;{c.threshold_mensal}x/mês
+                      </span>
+                    )}
+                    {c.favorita && (
+                      <span style={{ fontSize: 9, background: '#f59e0b20', color: '#f59e0b', borderRadius: 8, padding: '2px 6px', fontWeight: 700 }}>
+                        ⭐ Favorita
+                      </span>
+                    )}
+                  </div>
+                </div>
+                <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                  {/* Toggle favorita */}
+                  <button onClick={() => toggle(c.id, 'favorita', !c.favorita)}
+                    title="Favorita (aparece no topo)"
+                    style={{ fontSize: 14, background: 'none', border: 'none', cursor: 'pointer', opacity: c.favorita ? 1 : 0.3 }}>
+                    ⭐
+                  </button>
+                  {/* Toggle ativo */}
+                  <button onClick={() => toggle(c.id, 'ativo', !c.ativo)}
+                    style={{ background: 'none', border: `1px solid ${c.ativo ? '#22c55e' : '#ccc'}`, borderRadius: 6, padding: '3px 8px', fontSize: 10, color: c.ativo ? '#22c55e' : '#999', cursor: 'pointer', fontWeight: 600 }}>
+                    {c.ativo ? 'Ativa' : 'Inativa'}
+                  </button>
+                  {/* Remover */}
+                  <button onClick={() => { if (confirm(`Remover "${c.nome}"?`)) removeCategoria(c.id) }}
+                    style={{ background: 'none', border: 'none', color: '#ef4444', fontSize: 16, cursor: 'pointer' }}>🗑</button>
+                </div>
+              </div>
+            ))}
           </div>
-          <button onClick={() => remover(c.id, c.nome)}
-            style={{ background: 'none', border: 'none', color: '#ef4444', fontSize: 18, cursor: 'pointer' }}>🗑</button>
-        </div>
-      ))}
+        )
+      })}
 
-      <div style={{ marginTop: 14 }}>
-        <label style={S.label}>Nova categoria</label>
-        <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
-          <button onClick={() => setMostrarEmojis(!mostrarEmojis)}
-            style={{ fontSize: 22, background: C.bgCard2, border: `1px solid ${C.border}`, borderRadius: 10, padding: '8px 12px', cursor: 'pointer' }}>
-            {novoEmoji}
-          </button>
-          <input value={novoNome} onChange={e => setNovoNome(e.target.value)}
-            style={{ ...S.input, flex: 1 }} placeholder="Nome da categoria..." />
-          <button onClick={adicionar} style={{ ...S.btn(C.primary), flex: 'none', padding: '10px 16px' }}>+</button>
-        </div>
-        {mostrarEmojis && (
-          <div style={{ background: C.bgCard2, border: `1px solid ${C.border}`, borderRadius: 12, padding: 12 }}>
-            <div style={{ fontSize: 11, color: C.textMuted, marginBottom: 8, fontWeight: 700 }}>Escolha um emoji</div>
+      {/* Botão nova categoria */}
+      <button onClick={() => setMostrarForm(!mostrarForm)}
+        style={{ ...S.btn(mostrarForm ? C.textDim : C.accent), width: '100%', marginTop: 8 }}>
+        {mostrarForm ? '✕ Cancelar' : '+ Nova categoria'}
+      </button>
+
+      {mostrarForm && (
+        <div style={{ marginTop: 14, display: 'flex', flexDirection: 'column', gap: 10, background: C.bgCard2, borderRadius: 12, padding: 14, border: `1px solid ${C.border}` }}>
+          <div>
+            <label style={S.label}>Emoji</label>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
               {EMOJIS_COMUNS.map(e => (
-                <button key={e} onClick={() => { setNovoEmoji(e); setMostrarEmojis(false) }}
-                  style={{ fontSize: 22, background: novoEmoji === e ? C.primary + '22' : 'transparent', border: novoEmoji === e ? `2px solid ${C.primary}` : '2px solid transparent', borderRadius: 8, padding: '4px 6px', cursor: 'pointer' }}>
+                <button key={e} onClick={() => setNovoEmoji(e)}
+                  style={{ fontSize: 20, background: novoEmoji === e ? C.primary + '22' : 'transparent', border: novoEmoji === e ? `2px solid ${C.primary}` : '2px solid transparent', borderRadius: 8, padding: '4px 6px', cursor: 'pointer' }}>
                   {e}
                 </button>
               ))}
             </div>
           </div>
-        )}
-      </div>
+          <div>
+            <label style={S.label}>Nome</label>
+            <input value={novoNome} onChange={e => setNovoNome(e.target.value)} style={S.input} placeholder="Nome da categoria..." />
+          </div>
+          <div>
+            <label style={S.label}>Grupo operacional</label>
+            <select value={novoGrupo} onChange={e => setNovoGrupo(e.target.value)} style={S.input}>
+              {GRUPOS.map(g => <option key={g.id} value={g.id}>{g.label}</option>)}
+            </select>
+          </div>
+          <button onClick={adicionar} style={{ ...S.btn(C.primary) }}>+ Adicionar categoria</button>
+        </div>
+      )}
     </div>
   )
 }
@@ -4963,7 +5058,7 @@ function comprimirFoto(file) {
 }
 
 function ModalNovaDespesa({ store, today, onClose }) {
-  const { setores, addDespesa, categorias } = store
+  const { setores, addDespesa, categorias, despesas } = store
   const [descricao, setDescricao] = useState('')
   const [categoriaId, setCategoriaId] = useState('')
   const [setorId, setSetorId] = useState('')
@@ -4972,20 +5067,39 @@ function ModalNovaDespesa({ store, today, onClose }) {
   const [foto, setFoto] = useState(null)
   const [forma, setForma] = useState('dinheiro')
   const [salvando, setSalvando] = useState(false)
+  const [busca, setBusca] = useState('')
   const fotoRef = useRef(null)
 
   const catSel = categorias.find(c => c.id === categoriaId)
+
+  // Ordenação inteligente: favorita → mais usada nos últimos 30 dias → ordem
+  const catsOrdenadas = useMemo(() => {
+    const trinta = toDateStr(new Date(new Date().getTime() - 30 * 86400000))
+    const usoMap = {}
+    ;(despesas || []).filter(d => d.data_op >= trinta).forEach(d => {
+      usoMap[d.categoria_id] = (usoMap[d.categoria_id] || 0) + 1
+    })
+    return [...categorias]
+      .filter(c => !busca || c.nome.toLowerCase().includes(busca.toLowerCase()))
+      .sort((a, b) => {
+        if (a.favorita !== b.favorita) return a.favorita ? -1 : 1
+        const ua = usoMap[a.id] || 0, ub = usoMap[b.id] || 0
+        if (ua !== ub) return ub - ua
+        return (a.ordem || 99) - (b.ordem || 99)
+      })
+  }, [categorias, despesas, busca])
+
+  // Sugestões de descrição da categoria selecionada
+  const sugestoes = useMemo(() => {
+    if (!catSel?.descricoes_sugeridas?.length) return []
+    return catSel.descricoes_sugeridas
+  }, [catSel])
 
   const handleFoto = async (e) => {
     const file = e.target.files?.[0]
     if (!file) return
     const comprimida = await comprimirFoto(file)
     setFoto(comprimida)
-  }
-
-  const buildTexto = () => {
-    const cat = catSel ? `${catSel.emoji} ${catSel.nome}` : ''
-    return descricao.trim() || cat
   }
 
   const save = async () => {
@@ -4997,57 +5111,104 @@ function ModalNovaDespesa({ store, today, onClose }) {
     setSalvando(true)
     try {
       await addDespesa({
-        descricao:       descricao.trim(),
-        categoria_id:    categoriaId,
-        categoria_nome:  catSel?.nome || '',
-        categoria_emoji: catSel?.emoji || '📝',
-        setor_id:        setorId,
-        data_op:         today,
-        data_real:       toDateStr(new Date()),
-        valor:           v,
-        forma_pagamento: forma,
-        obs:             obs.trim(),
-        foto:            foto || null,
-        lancado:         false,
-        criado_em:       new Date().toISOString(),
+        descricao:            descricao.trim(),
+        categoria_id:         categoriaId,
+        categoria_nome:       catSel?.nome || '',
+        categoria_emoji:      catSel?.emoji || '📝',
+        categoria_grupo:      catSel?.grupo || 'outros',
+        categoria_cor:        catSel?.cor || '#9ca3af',
+        setor_id:             setorId,
+        data_op:              today,
+        data_real:            toDateStr(new Date()),
+        valor:                v,
+        forma_pagamento:      forma,
+        obs:                  obs.trim(),
+        foto:                 foto || null,
+        lancado:              false,
+        criado_em:            new Date().toISOString(),
       })
       onClose()
     } catch (err) { alert('Erro ao salvar. Tente novamente.'); console.error(err) }
     setSalvando(false)
   }
 
+  const GRUPOS_LABEL = {
+    estoque:'📦 Estoque', emergencia:'🚨 Emergência', operacional:'⚙️ Operacional',
+    pessoal:'👥 Pessoal', saude:'💊 Saúde equipe', financeiro:'💰 Financeiro',
+    correcoes:'↩️ Correções', outros:'📝 Outros',
+  }
+
+  // Agrupa para exibição
+  const catsPorGrupo = useMemo(() => {
+    if (busca) return { 'Resultados': catsOrdenadas }
+    const map = {}
+    catsOrdenadas.forEach(c => {
+      const g = GRUPOS_LABEL[c.grupo] || '📝 Outros'
+      if (!map[g]) map[g] = []
+      map[g].push(c)
+    })
+    // Favoritas sempre no topo como grupo separado
+    const favs = catsOrdenadas.filter(c => c.favorita)
+    const resultado = {}
+    if (favs.length) resultado['⭐ Mais usadas'] = favs
+    Object.entries(map).forEach(([g, cats]) => {
+      resultado[g] = cats.filter(c => !c.favorita)
+    })
+    return resultado
+  }, [catsOrdenadas, busca])
+
   return (
     <Modal title="🧾 Novo Lançamento" onClose={onClose}>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
 
-        {/* Categoria */}
+        {/* Busca de categoria */}
         <div>
           <label style={S.label}>Categoria *</label>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-            {categorias.map(c => (
-              <button key={c.id} onClick={() => setCategoriaId(c.id)}
-                style={{ padding: '8px 12px', border: `2px solid ${categoriaId === c.id ? C.accent : C.border}`, borderRadius: 20, background: categoriaId === c.id ? C.accent + '22' : C.bgCard2, cursor: 'pointer', fontSize: 13, fontWeight: categoriaId === c.id ? 700 : 400, color: categoriaId === c.id ? C.accent : C.textMuted }}>
-                {c.emoji} {c.nome}
-              </button>
-            ))}
-          </div>
+          <input value={busca} onChange={e => setBusca(e.target.value)}
+            style={{ ...S.input, marginBottom: 8 }} placeholder="🔍 Buscar categoria..." />
+
+          {Object.entries(catsPorGrupo).map(([grupo, cats]) => cats.length === 0 ? null : (
+            <div key={grupo} style={{ marginBottom: 10 }}>
+              <div style={{ fontSize: 10, fontWeight: 700, color: C.textMuted, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6 }}>
+                {grupo}
+              </div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                {cats.map(c => (
+                  <button key={c.id} onClick={() => { setCategoriaId(c.id); setBusca('') }}
+                    style={{ padding: '7px 12px', border: `2px solid ${categoriaId === c.id ? c.cor || C.accent : C.border}`,
+                      borderRadius: 20, background: categoriaId === c.id ? (c.cor || C.accent) + '22' : C.bgCard2,
+                      cursor: 'pointer', fontSize: 12, fontWeight: categoriaId === c.id ? 700 : 400,
+                      color: categoriaId === c.id ? c.cor || C.accent : C.textMuted }}>
+                    {c.emoji} {c.nome}
+                  </button>
+                ))}
+              </div>
+            </div>
+          ))}
         </div>
+
+        {/* Sugestões de descrição */}
+        {catSel && sugestoes.length > 0 && !descricao && (
+          <div>
+            <label style={S.label}>Sugestões rápidas</label>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+              {sugestoes.map((s, i) => (
+                <button key={i} onClick={() => setDescricao(s)}
+                  style={{ padding: '6px 12px', border: `1px solid ${C.border}`, borderRadius: 16,
+                    background: C.bgCard2, cursor: 'pointer', fontSize: 12, color: C.textMuted }}>
+                  {s}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* Descrição livre */}
         <div>
-          <label style={S.label}>Descrição (texto do lançamento) *</label>
-          <input
-            value={descricao}
-            onChange={e => setDescricao(e.target.value)}
-            onFocus={e => { if (!descricao) setDescricao('') }}
+          <label style={S.label}>Descrição *</label>
+          <input value={descricao} onChange={e => setDescricao(e.target.value)}
             style={S.input}
-            placeholder={catSel ? `${catSel.emoji} Compra de / Local...` : 'Descreva a despesa...'}
-          />
-          {descricao && (
-            <div style={{ fontSize: 11, color: C.textMuted, marginTop: 4, fontFamily: 'monospace' }}>
-              📋 {buildTexto()}
-            </div>
-          )}
+            placeholder={catSel ? `${catSel.emoji} Descreva...` : 'Selecione uma categoria primeiro'} />
         </div>
 
         {/* Valor + Setor */}
@@ -5067,9 +5228,8 @@ function ModalNovaDespesa({ store, today, onClose }) {
           </div>
         </div>
 
-        {/* Data — sempre hoje, sem retroativo */}
         <div style={{ background: C.bgCard2, borderRadius: 10, padding: '10px 14px', border: `1px solid ${C.border}` }}>
-          <div style={{ fontSize: 12, color: C.textMuted }}>📅 Data: <strong>{dayLabel(today)}</strong> (hoje — saída imediata do caixa)</div>
+          <div style={{ fontSize: 12, color: C.textMuted }}>📅 Data: <strong>{dayLabel(today)}</strong></div>
         </div>
 
         {/* Forma de pagamento */}
@@ -5079,9 +5239,6 @@ function ModalNovaDespesa({ store, today, onClose }) {
             <button onClick={() => setForma('dinheiro')} style={{ flex: 1, padding: '12px', border: `2px solid ${forma === 'dinheiro' ? '#22c55e' : C.border}`, borderRadius: 10, background: forma === 'dinheiro' ? '#22c55e20' : C.bgCard2, cursor: 'pointer', fontSize: 13, fontWeight: 700, color: forma === 'dinheiro' ? '#22c55e' : C.textMuted }}>💵 Dinheiro</button>
             <button onClick={() => setForma('pix')} style={{ flex: 1, padding: '12px', border: `2px solid ${forma === 'pix' ? '#3b82f6' : C.border}`, borderRadius: 10, background: forma === 'pix' ? '#3b82f620' : C.bgCard2, cursor: 'pointer', fontSize: 13, fontWeight: 700, color: forma === 'pix' ? '#3b82f6' : C.textMuted }}>📱 Pix</button>
           </div>
-          {forma === 'pix' && (
-            <div style={{ fontSize: 11, color: C.secondary, marginTop: 6 }}>ℹ️ Use Pix quando a despesa foi paga fora do caixa e precisa ser registrada.</div>
-          )}
         </div>
 
         {/* Foto da nota */}

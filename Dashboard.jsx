@@ -592,6 +592,62 @@ function TelaDescobrei({ extras, vales, despesas, setores, today }) {
       })
     }
 
+    // 9. Emergências — falha de controle de estoque
+    const emergencias = (despesas||[]).filter(d => d.categoria_grupo === 'emergencia')
+    const mesAtual = today.slice(0,7)
+    const emergMes = emergencias.filter(d => d.data_op?.startsWith(mesAtual))
+    if (emergMes.length >= 3) {
+      const totalEmerg = emergMes.reduce((a,d)=>a+d.valor,0)
+      lista.push({
+        emoji: '🚨',
+        titulo: `${emergMes.length} compras emergenciais esse mês`,
+        resumo: `${fmt(totalEmerg)} em compras não planejadas`,
+        detalhe: `Compras emergenciais frequentes indicam falha no controle de estoque. Esse mês foram ${emergMes.length} lançamentos de emergência somando ${fmt(totalEmerg)}. Revisar o estoque semanal pode evitar esses gastos extras.`,
+        cor: D.red,
+      })
+    }
+
+    // 10. Correções operacionais — erro de cobrança
+    const correcoes = (despesas||[]).filter(d => d.categoria_grupo === 'correcoes')
+    const corrMes = correcoes.filter(d => d.data_op?.startsWith(mesAtual))
+    if (corrMes.length >= 2) {
+      const totalCorr = corrMes.reduce((a,d)=>a+d.valor,0)
+      lista.push({
+        emoji: '↩️',
+        titulo: `${corrMes.length} correções operacionais esse mês`,
+        resumo: `${fmt(totalCorr)} em devoluções e ajustes de cobrança`,
+        detalhe: `Devoluções e correções de cobrança frequentes indicam erros operacionais. Esse mês foram ${corrMes.length} ocorrências, totalizando ${fmt(totalCorr)}. Vale revisar o processo de cobrança.`,
+        cor: D.yellow,
+      })
+    }
+
+    // 11. Farmácia — desgaste da equipe
+    const farmacias = (despesas||[]).filter(d => d.categoria_grupo === 'saude')
+    const farmMes = farmacias.filter(d => d.data_op?.startsWith(mesAtual))
+    if (farmMes.length >= 3) {
+      lista.push({
+        emoji: '💊',
+        titulo: `Farmácia apareceu ${farmMes.length} vezes esse mês`,
+        resumo: `Pode indicar desgaste ou adoecimento da equipe`,
+        detalhe: `Gastos frequentes com farmácia podem sinalizar que a equipe está sobrecarregada ou adoecendo. Esse mês foram ${farmMes.length} lançamentos na categoria Saúde. Vale observar o ritmo de trabalho do time.`,
+        cor: '#ec4899',
+      })
+    }
+
+    // 12. Motoboy — problema no fluxo de entrega
+    const motoboys = (despesas||[]).filter(d => d.categoria_nome?.toLowerCase().includes('motoboy'))
+    const motoMes = motoboys.filter(d => d.data_op?.startsWith(mesAtual))
+    if (motoMes.length >= 5) {
+      const totalMoto = motoMes.reduce((a,d)=>a+d.valor,0)
+      lista.push({
+        emoji: '🛵',
+        titulo: `Motoboy avulso ${motoMes.length} vezes esse mês`,
+        resumo: `${fmt(totalMoto)} em entregas avulsas`,
+        detalhe: `Alta frequência de motoboys avulsos pode indicar problema no fluxo de entregas ou falta de motoboy fixo. Esse mês foram ${motoMes.length} acionamentos, custando ${fmt(totalMoto)}.`,
+        cor: D.blue,
+      })
+    }
+
     return lista
   }, [extras, vales, despesas, setores])
 
