@@ -6,7 +6,12 @@ import { collection, addDoc, updateDoc, setDoc, doc, onSnapshot, deleteDoc, runT
 const fmt = (cents) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format((cents || 0) / 100)
 const parseCents = (str) => parseInt(String(str).replace(/\D/g, '') || '0', 10)
 const DIAS = ['DOM', 'SEG', 'TER', 'QUA', 'QUI', 'SEX', 'SÁB']
-const toDateStr = (d) => d.toISOString().slice(0, 10)
+const toDateStr = (d) => {
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${y}-${m}-${day}`
+}
 
 const DEFAULT_CONFIG = {
   nome_estabelecimento: 'ARACÁ GRILL',
