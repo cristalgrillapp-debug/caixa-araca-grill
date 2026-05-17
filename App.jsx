@@ -448,9 +448,11 @@ function AppPrincipal({ usuario, onLogout }) {
           for (const c of CATS_PADRAO) await addDoc(collection(db, 'categorias_despesas'), c)
         } else {
           const docs = s.docs.map(d => ({ id: d.id, ...d.data() }))
-          // Se as categorias não têm campo "grupo", são antigas — migra automaticamente
-          const precisaMigrar = docs.every(d => !d.grupo)
-          if (precisaMigrar) {
+          // Migra se: todas sem "grupo" (antigas) OU existem nomes duplicados
+          const semGrupo = docs.every(d => !d.grupo)
+          const nomes = docs.map(d => d.nome)
+          const temDuplicata = nomes.length !== new Set(nomes).size
+          if (semGrupo || temDuplicata) {
             const batch = writeBatch(db)
             docs.forEach(d => batch.delete(doc(db, 'categorias_despesas', d.id)))
             await batch.commit()
@@ -5219,44 +5221,6 @@ function ModalNovaDespesa({ store, today, onClose }) {
             </div>
           </div>
         )}
-
-        {/* Descrição livre */}
-        <div>
-          <label style={S.label}>Descrição *</label>
-          <input value={descricao} onChange={e => setDescricao(e.target.value)}
-            style={S.input}
-            placeholder={catSel ? `${catSel.emoji} Descreva...` : 'Selecione uma categoria primeiro'} />
-        </div>
-
-        {/* Valor + Setor */}
-        <div style={{ display: 'flex', gap: 8 }}>
-          <div style={{ flex: 1 }}>
-            <label style={S.label}>Valor *</label>
-            <input value={valorDisplay}
-              onChange={e => { const r = e.target.value.replace(/\D/g,''); setValorDisplay(r ? fmt(parseInt(r)) : '') }}
-              style={{ ...S.input, fontSize: 18, fontWeight: 700 }} placeholder="R$ 0,00" inputMode="numeric" />
-          </div>
-          <div style={{ flex: 1 }}>
-            <label style={S.label}>Setor</label>
-            <select value={setorId} onChange={e => setSetorId(e.target.value)} style={S.input}>
-              <option value="">—</option>
-              {setores.filter(s => s.ativo).map(s => <option key={s.id} value={s.id}>{s.nome}</option>)}
-            </select>
-          </div>
-        </div>
-
-        <div style={{ background: C.bgCard2, borderRadius: 10, padding: '10px 14px', border: `1px solid ${C.border}` }}>
-          <div style={{ fontSize: 12, color: C.textMuted }}>📅 Data: <strong>{dayLabel(today)}</strong></div>
-        </div>
-
-        {/* Forma de pagamento */}
-        <div>
-          <label style={S.label}>Forma de pagamento</label>
-          <div style={{ display: 'flex', gap: 8 }}>
-            <button onClick={() => setForma('dinheiro')} style={{ flex: 1, padding: '12px', border: `2px solid ${forma === 'dinheiro' ? '#22c55e' : C.border}`, borderRadius: 10, background: forma === 'dinheiro' ? '#22c55e20' : C.bgCard2, cursor: 'pointer', fontSize: 13, fontWeight: 700, color: forma === 'dinheiro' ? '#22c55e' : C.textMuted }}>💵 Dinheiro</button>
-            <button onClick={() => setForma('pix')} style={{ flex: 1, padding: '12px', border: `2px solid ${forma === 'pix' ? '#3b82f6' : C.border}`, borderRadius: 10, background: forma === 'pix' ? '#3b82f620' : C.bgCard2, cursor: 'pointer', fontSize: 13, fontWeight: 700, color: forma === 'pix' ? '#3b82f6' : C.textMuted }}>📱 Pix</button>
-          </div>
-        </div>
 
         {/* Descrição — texto da sangria */}
         <div>
