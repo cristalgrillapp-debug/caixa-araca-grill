@@ -2000,9 +2000,8 @@ function TabRelatorios({ store }) {
   const ontem = toDateStr(new Date(new Date(today + 'T12:00:00').getTime() - 86400000))
   const weekStart = toDateStr(new Date(new Date(today + 'T12:00:00').setDate(new Date(today + 'T12:00:00').getDate() - 6)))
   const monthStart = today.slice(0, 7) + '-01'
-  const semAnteriorFim = toDateStr(new Date(new Date(weekStart + 'T12:00:00').getTime() - 86400000))
+  const semAnteriorFim   = toDateStr(new Date(new Date(weekStart + 'T12:00:00').getTime() - 86400000))
   const semAnteriorStart = toDateStr(new Date(new Date(semAnteriorFim + 'T12:00:00').getTime() - 6 * 86400000))
-  const mesAnteriorStart = new Date(today).getFullYear() + '-' + String(new Date(today).getMonth()).padStart(2,'0') + '-01'
 
   const ranges = { hoje: [today, today], ontem: [ontem, ontem], semana: [weekStart, today], mes: [monthStart, today], livre: [dataInicio, dataFim] }
   const [from, to] = ranges[filtro] || [weekStart, today]
@@ -2011,14 +2010,24 @@ function TabRelatorios({ store }) {
   const valesPeriodo = useMemo(() => (vales||[]).filter(v => v.data_op >= from && v.data_op <= to), [vales, from, to])
   const despPeriodo  = useMemo(() => (despesas||[]).filter(d => d.data_op >= from && d.data_op <= to), [despesas, from, to])
 
-  const pagosAntSem = useMemo(() => extras.filter(e => e.pago && e.data_op >= semAnteriorStart && e.data_op <= semAnteriorFim), [extras])
-  const pagosHoje   = useMemo(() => extras.filter(e => e.pago && e.data_op === today), [extras, today])
+  // Semana anterior — inclui extras + vales + despesas para comparar igual com igual
+  const pagosAntSem  = useMemo(() => extras.filter(e => e.pago && e.data_op >= semAnteriorStart && e.data_op <= semAnteriorFim), [extras])
+  const valesAntSem  = useMemo(() => (vales||[]).filter(v => v.data_op >= semAnteriorStart && v.data_op <= semAnteriorFim), [vales])
+  const despAntSem   = useMemo(() => (despesas||[]).filter(d => d.data_op >= semAnteriorStart && d.data_op <= semAnteriorFim), [despesas])
+
+  const pagosHoje    = useMemo(() => extras.filter(e => e.pago && e.data_op === today), [extras, today])
 
   const totalExtras   = useMemo(() => pagos.reduce((a,e) => a+e.valor_final, 0), [pagos])
   const totalVales    = useMemo(() => valesPeriodo.reduce((a,v) => a+v.valor, 0), [valesPeriodo])
   const totalDespesas = useMemo(() => despPeriodo.reduce((a,d) => a+d.valor, 0), [despPeriodo])
   const totalCusto    = totalExtras + totalVales + totalDespesas
-  const totalAntSem   = useMemo(() => pagosAntSem.reduce((a,e) => a+e.valor_final, 0), [pagosAntSem])
+
+  // Semana anterior — mesmo critério: extras + vales + despesas
+  const totalAntSem = useMemo(() =>
+    pagosAntSem.reduce((a,e) => a+e.valor_final, 0) +
+    valesAntSem.reduce((a,v) => a+v.valor, 0) +
+    despAntSem.reduce((a,d) => a+d.valor, 0)
+  , [pagosAntSem, valesAntSem, despAntSem])
 
   // Enriquece extras com dados da pessoa
   const extrasComPessoa = useMemo(() => pagos.map(e => {
@@ -2028,15 +2037,33 @@ function TabRelatorios({ store }) {
 
   const internos = useMemo(() => extrasComPessoa.filter(e => e.interno_casa), [extrasComPessoa])
   const externos = useMemo(() => extrasComPessoa.filter(e => !e.interno_casa), [extrasComPessoa])
-  const totalPix = useMemo(() => pagos.filter(e => e.forma_pagamento === 'pix').reduce((a, e) => a + e.valor_final, 0), [pagos])
-  const totalDin = useMemo(() => pagos.filter(e => e.forma_pagamento === 'dinheiro').reduce((a, e) => a + e.valor_final, 0), [pagos])
 
-  // Variação vs semana anterior
+  // Pix e Dinheiro incluem extras + vales + despesas
+  const totalDin = useMemo(() =>
+    pagos.filter(e => e.forma_pagamento === 'dinheiro').reduce((a,e) => a+e.valor_final, 0) +
+    valesPeriodo.filter(v => v.forma_pagamento === 'dinheiro').reduce((a,v) => a+v.valor, 0) +
+    despPeriodo.filter(d => (d.forma_pagamento||'dinheiro') === 'dinheiro').reduce((a,d) => a+d.valor, 0)
+  , [pagos, valesPeriodo, despPeriodo])
+
+  const totalPix = useMemo(() =>
+    pagos.filter(e => e.forma_pagamento === 'pix').reduce((a,e) => a+e.valor_final, 0) +
+    valesPeriodo.filter(v => v.forma_pagamento === 'pix').reduce((a,v) => a+v.valor, 0) +
+    despPeriodo.filter(d => d.forma_pagamento === 'pix').reduce((a,d) => a+d.valor, 0)
+  , [pagos, valesPeriodo, despPeriodo])
+
+  // Variação vs semana anterior (agora compara grandezas iguais)
   const variacaoSem = totalAntSem > 0 ? Math.round(((totalCusto - totalAntSem) / totalAntSem) * 100) : 0
   const corVariacao = variacaoSem > 15 ? '#ef4444' : variacaoSem > 0 ? '#f59e0b' : '#22c55e'
 
-  // Custo médio por turno
-  const diasUnicos = useMemo(() => [...new Set(pagos.map(e => e.data_op))], [pagos])
+  // Média por dia — considera todos os dias com qualquer tipo de lançamento
+  const diasUnicos = useMemo(() => {
+    const todos = [
+      ...pagos.map(e => e.data_op),
+      ...valesPeriodo.map(v => v.data_op),
+      ...despPeriodo.map(d => d.data_op),
+    ]
+    return [...new Set(todos)]
+  }, [pagos, valesPeriodo, despPeriodo])
   const mediaCustoPorDia = diasUnicos.length > 0 ? Math.round(totalCusto / diasUnicos.length) : 0
 
   // Por setor
@@ -2093,7 +2120,7 @@ function TabRelatorios({ store }) {
     if (ndExtras.length > 3) lista.push({ cor: '#f59e0b', msg: `${ndExtras.length} extras em jornada dupla (Dia+Noite)` })
     const obsImportantes = extrasComPessoa.filter(e => e.obs_fixa && e.obs_fixa.length > 0)
     if (obsImportantes.length > 0) lista.push({ cor: '#3b82f6', msg: `${obsImportantes.length} extras com observações importantes` })
-    if (pagosHoje.length === 0 && today === from) lista.push({ cor: '#8a7355', msg: 'Nenhum pagamento registrado hoje ainda' })
+    if (pagosHoje.length === 0 && filtro === 'hoje') lista.push({ cor: '#8a7355', msg: 'Nenhum pagamento registrado hoje ainda' })
     return lista
   }, [pagos, internos, variacaoSem, extrasComPessoa, setores, pagosHoje])
 
@@ -2177,47 +2204,60 @@ function TabRelatorios({ store }) {
         )}
 
         {/* Cards principais */}
+        <div style={{ ...S.card, margin: 0, marginBottom: 8, background: 'linear-gradient(135deg,#1a1200,#2d2000)', color: '#fff' }}>
+          <div style={{ fontSize: 10, color: '#c9a96e80', textTransform: 'uppercase', letterSpacing: '0.1em' }}>💰 Total de Saídas</div>
+          <div style={{ fontSize: 28, fontWeight: 700, color: '#c9a96e' }}>{fmt(totalCusto)}</div>
+          {variacaoSem !== 0 && <div style={{ fontSize: 10, color: corVariacao, fontWeight: 600, marginTop: 2 }}>{variacaoSem > 0 ? '↑' : '↓'} {Math.abs(variacaoSem)}% vs semana anterior</div>}
+          <div style={{ display: 'flex', gap: 12, marginTop: 8, paddingTop: 8, borderTop: '1px solid #ffffff15' }}>
+            <div style={{ fontSize: 11, color: '#ffffff70' }}>💼 Extras: <strong style={{ color: '#c9a96e' }}>{fmt(totalExtras)}</strong></div>
+            <div style={{ fontSize: 11, color: '#ffffff70' }}>💸 Vales: <strong style={{ color: '#c9a96e' }}>{fmt(totalVales)}</strong></div>
+            {totalDespesas > 0 && <div style={{ fontSize: 11, color: '#ffffff70' }}>🧾 Despesas: <strong style={{ color: '#c9a96e' }}>{fmt(totalDespesas)}</strong></div>}
+          </div>
+        </div>
+
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 12 }}>
           <div style={{ ...S.card, margin: 0, textAlign: 'center' }}>
-            <div style={{ fontSize: 10, color: '#8a7355', textTransform: 'uppercase' }}>💰 Custo Total</div>
-            <div style={{ fontSize: 22, fontWeight: 700, color: '#c9a96e' }}>{fmt(totalCusto)}</div>
-            {variacaoSem !== 0 && <div style={{ fontSize: 10, color: corVariacao, fontWeight: 600 }}>{variacaoSem > 0 ? '↑' : '↓'} {Math.abs(variacaoSem)}% vs sem. ant.</div>}
-          </div>
-          <div style={{ ...S.card, margin: 0, textAlign: 'center' }}>
-            <div style={{ fontSize: 10, color: '#8a7355', textTransform: 'uppercase' }}>👥 Extras</div>
+            <div style={{ fontSize: 10, color: '#8a7355', textTransform: 'uppercase' }}>👥 Extras pagos</div>
             <div style={{ fontSize: 22, fontWeight: 700, color: '#1a1a2e' }}>{pagos.length}</div>
             <div style={{ fontSize: 10, color: '#8a7355' }}>Média {mediaCustoPorDia > 0 ? fmt(mediaCustoPorDia) : '—'}/dia</div>
+          </div>
+          <div style={{ ...S.card, margin: 0, textAlign: 'center' }}>
+            <div style={{ fontSize: 10, color: '#8a7355', textTransform: 'uppercase' }}>📅 Dias no período</div>
+            <div style={{ fontSize: 22, fontWeight: 700, color: C.accent }}>{diasUnicos.length}</div>
+            <div style={{ fontSize: 10, color: '#8a7355' }}>{diasUnicos.length > 0 ? fmt(mediaCustoPorDia)+'/dia' : '—'}</div>
           </div>
           <div style={{ ...S.card, margin: 0, textAlign: 'center' }}>
             <div style={{ fontSize: 10, color: '#8a7355', textTransform: 'uppercase' }}>🏠 Internos</div>
             <div style={{ fontSize: 22, fontWeight: 700, color: '#3b82f6' }}>{internos.length}</div>
             <div style={{ fontSize: 10, color: pagos.length > 0 && (internos.length/pagos.length) > 0.4 ? '#f59e0b' : '#8a7355' }}>
-              {pagos.length > 0 ? Math.round((internos.length/pagos.length)*100) : 0}% do total
+              {pagos.length > 0 ? Math.round((internos.length/pagos.length)*100) : 0}% dos extras
             </div>
           </div>
           <div style={{ ...S.card, margin: 0, textAlign: 'center' }}>
             <div style={{ fontSize: 10, color: '#8a7355', textTransform: 'uppercase' }}>🚶 Externos</div>
             <div style={{ fontSize: 22, fontWeight: 700, color: '#8a7355' }}>{externos.length}</div>
-            <div style={{ fontSize: 10, color: '#8a7355' }}>{pagos.length > 0 ? Math.round((externos.length/pagos.length)*100) : 0}% do total</div>
+            <div style={{ fontSize: 10, color: '#8a7355' }}>{pagos.length > 0 ? Math.round((externos.length/pagos.length)*100) : 0}% dos extras</div>
           </div>
         </div>
 
         {/* Pix vs Dinheiro */}
         <div style={S.card}>
-          <div style={{ fontSize: 12, fontWeight: 700, color: '#8a7355', marginBottom: 10 }}>💳 Forma de Pagamento</div>
+          <div style={{ fontSize: 12, fontWeight: 700, color: '#8a7355', marginBottom: 10 }}>💳 Forma de Pagamento (todas as saídas)</div>
           <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
             <div style={{ flex: 1, textAlign: 'center' }}>
               <div style={{ fontSize: 11, color: '#22c55e' }}>💵 Dinheiro</div>
               <div style={{ fontSize: 18, fontWeight: 700 }}>{fmt(totalDin)}</div>
+              <div style={{ fontSize: 10, color: C.textMuted }}>{totalCusto > 0 ? Math.round(totalDin/totalCusto*100) : 0}%</div>
             </div>
             <div style={{ flex: 1, textAlign: 'center' }}>
               <div style={{ fontSize: 11, color: '#3b82f6' }}>📱 Pix</div>
               <div style={{ fontSize: 18, fontWeight: 700 }}>{fmt(totalPix)}</div>
+              <div style={{ fontSize: 10, color: C.textMuted }}>{totalCusto > 0 ? Math.round(totalPix/totalCusto*100) : 0}%</div>
             </div>
           </div>
           {totalCusto > 0 && (
             <div style={{ height: 8, background: '#f0e8d8', borderRadius: 4, overflow: 'hidden' }}>
-              <div style={{ height: '100%', width: (totalDin/totalCusto*100)+'%', background: '#22c55e', borderRadius: 4 }} />
+              <div style={{ height: '100%', width: Math.min(100, Math.round(totalDin/totalCusto*100))+'%', background: '#22c55e', borderRadius: 4 }} />
             </div>
           )}
         </div>
