@@ -383,6 +383,30 @@ function AppPrincipal({ usuario, onLogout }) {
   const [reservasStatus, setReservasStatus] = useState({})
   const [novasReservas, setNovasReservas] = useState([])
   const idsConhecidos = useRef(null)
+  const [reservasDataReady, setReservasDataReady] = useState(false)
+  const hasPlayedLoadSound = useRef(false)
+
+  const playNotificationSound = () => {
+    try {
+      const Ctx = window.AudioContext || window.webkitAudioContext
+      if (!Ctx) return
+      const ctx = new Ctx()
+      const nota = (freq, start, dur, vol = 0.28) => {
+        const osc = ctx.createOscillator()
+        const gain = ctx.createGain()
+        osc.connect(gain); gain.connect(ctx.destination)
+        osc.type = 'sine'; osc.frequency.value = freq
+        gain.gain.setValueAtTime(0, start)
+        gain.gain.linearRampToValueAtTime(vol, start + 0.01)
+        gain.gain.exponentialRampToValueAtTime(0.001, start + dur)
+        osc.start(start); osc.stop(start + dur + 0.05)
+      }
+      const t = ctx.currentTime
+      nota(1047, t,       0.55)   // C6
+      nota(1319, t + 0.2, 0.55)   // E6
+      nota(1568, t + 0.4, 0.95)   // G6 — sustentado
+    } catch(e) {}
+  }
 
   // today vem do turno ativo — se não tiver, usa data real
   const today = turnoAtivo?.data_op || toDateStr(new Date())
@@ -392,6 +416,17 @@ function AppPrincipal({ usuario, onLogout }) {
     setConfig(novo)
     await updateDoc(doc(db, 'configuracoes', 'geral'), novo)
   }
+
+  // Toca sino de alerta ao abrir o app se há reservas não vistas hoje
+  useEffect(() => {
+    if (!reservasDataReady || hasPlayedLoadSound.current) return
+    hasPlayedLoadSound.current = true
+    const hoje = toDateStr(new Date())
+    const naoVistas = reservas
+      .filter(r => r.data === hoje)
+      .filter(r => !reservasStatus[r.key]?.visualizado)
+    if (naoVistas.length > 0) setTimeout(playNotificationSound, 1000)
+  }, [reservasDataReady, reservas, reservasStatus])
 
   // Avisa se tentar fechar com pagamentos pendentes
   useEffect(() => {
@@ -513,11 +548,13 @@ function AppPrincipal({ usuario, onLogout }) {
         })
         if (idsConhecidos.current === null) {
           idsConhecidos.current = new Set(s.docs.map(d => d.id))
+          setReservasDataReady(true)
         } else {
           const novas = s.docs.filter(d => !idsConhecidos.current.has(d.id))
           if (novas.length > 0) {
             novas.forEach(d => idsConhecidos.current.add(d.id))
             setNovasReservas(prev => [...prev, ...novas.map(d => ({ id:d.id, ...d.data() }))])
+            playNotificationSound()
           }
         }
         setReservas(convertida.sort((a,b)=>a.data.localeCompare(b.data)||(a.horario||'').localeCompare(b.horario||'')))
