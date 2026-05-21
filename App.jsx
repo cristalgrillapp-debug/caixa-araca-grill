@@ -87,6 +87,7 @@ const DEFAULT_CONFIG = {
   reservas_col_nome: 2,
   reservas_col_pessoas: 3,
   reservas_col_obs: 4,
+  reservas_script_url: '',
 }
 
 const todayOp = (cfg) => {
@@ -421,7 +422,8 @@ function AppPrincipal({ usuario, onLogout }) {
   const [carregandoTurno, setCarregandoTurno] = useState(true)
   const migrandoCats = useRef(false)
 
-  const [reservas, setReservas] = useState([])
+  const [reservasSheets, setReservasSheets] = useState([])
+  const [reservasClientes, setReservasClientes] = useState([])
   const [reservasStatus, setReservasStatus] = useState({})
   const [reservasLoading, setReservasLoading] = useState(false)
   const [reservasErro, setReservasErro] = useState(null)
@@ -429,6 +431,14 @@ function AppPrincipal({ usuario, onLogout }) {
 
   // today vem do turno ativo — se não tiver, usa data real
   const today = turnoAtivo?.data_op || toDateStr(new Date())
+
+  // Merge: Google Sheets + Firebase (clientes). Chave idêntica → Firebase prevalece
+  const reservas = useMemo(() => {
+    const mapa = {}
+    reservasSheets.forEach(r => { mapa[r.key] = r })
+    reservasClientes.forEach(r => { mapa[r.key] = { ...mapa[r.key], ...r } })
+    return Object.values(mapa).sort((a,b)=>a.data.localeCompare(b.data)||(a.horario||'').localeCompare(b.horario||''))
+  }, [reservasSheets, reservasClientes])
 
   const updateConfig = async (changes) => {
     const novo = { ...config, ...changes }
@@ -546,6 +556,16 @@ function AppPrincipal({ usuario, onLogout }) {
         s.docs.forEach(d => { map[d.data().chave] = d.data() })
         setReservasStatus(map)
       }),
+      onSnapshot(collection(db, 'reservas_clientes'), s => {
+        setReservasClientes(s.docs.map(d => {
+          const r = d.data()
+          const safeKey = `${r.data}_${(r.nome||'').toLowerCase().replace(/[^a-z0-9]/g,'-')}_${(r.horario||'').replace(':','')}`
+          return { data:r.data, horario:r.horario, nome:r.nome, pessoas:r.pessoas,
+            obs:r.observacoes||'', key:safeKey, rowIdx:null,
+            local:r.local, periodo:r.periodo, telefone:r.telefone,
+            fromFirebase:true, id:d.id }
+        }))
+      }),
       onSnapshot(collection(db, 'pessoas'), s => setPessoas(s.docs.map(d => ({ id: d.id, ...d.data() })))),
       onSnapshot(collection(db, 'setores'), s => {
         const data = s.docs.map(d => ({ id: d.id, ...d.data() }))
@@ -571,7 +591,7 @@ function AppPrincipal({ usuario, onLogout }) {
   useEffect(() => {
     clearInterval(intervalReservas.current)
     if (!config.reservas_sheet_id || !config.reservas_api_key) {
-      setReservas([])
+      setReservasSheets([])
       setReservasLoading(false)
       setReservasErro(null)
       return
@@ -590,7 +610,7 @@ function AppPrincipal({ usuario, onLogout }) {
           config.reservas_col_pessoas ?? 3,
           config.reservas_col_obs ?? 4
         )
-        setReservas(data)
+        setReservasSheets(data)
       } catch (e) {
         setReservasErro(e.message)
       } finally {
@@ -3763,6 +3783,7 @@ function TabConfig({ store, setModal }) {
   const [rsColNome, setRsColNome]       = useState(String(config.reservas_col_nome ?? 2))
   const [rsColPessoas, setRsColPessoas] = useState(String(config.reservas_col_pessoas ?? 3))
   const [rsColObs, setRsColObs]         = useState(String(config.reservas_col_obs ?? 4))
+  const [rsScriptUrl, setRsScriptUrl]   = useState(config.reservas_script_url || '')
   const [rsSavedMsg, setRsSavedMsg]     = useState('')
 
   const salvarReservas = () => {
@@ -3776,6 +3797,7 @@ function TabConfig({ store, setModal }) {
       reservas_col_nome: parseInt(rsColNome) || 2,
       reservas_col_pessoas: parseInt(rsColPessoas) || 3,
       reservas_col_obs: parseInt(rsColObs) || 4,
+      reservas_script_url: rsScriptUrl.trim(),
     })
     setRsSavedMsg('✓ Salvo!')
     setTimeout(() => setRsSavedMsg(''), 2500)
@@ -3884,6 +3906,14 @@ function TabConfig({ store, setModal }) {
                     style={{...S.input,padding:'8px 10px',fontSize:13,textAlign:'center'}} />
                 </div>
               ))}
+            </div>
+            <div style={{ marginBottom:14 }}>
+              <label style={S.label}>URL do Google Apps Script (escrita na planilha)</label>
+              <input value={rsScriptUrl} onChange={e=>setRsScriptUrl(e.target.value)} style={S.input}
+                placeholder="https://script.google.com/macros/s/..." />
+              <div style={{ fontSize:11, color:'#999', marginTop:4 }}>
+                Opcional · permite escrever reservas diretamente na planilha. Deixe vazio para usar apenas Firebase.
+              </div>
             </div>
             <button onClick={salvarReservas} style={{ ...S.btn(rsSavedMsg?C.success:C.gold) }}>
               {rsSavedMsg||'💾 Salvar configuração de Reservas'}
