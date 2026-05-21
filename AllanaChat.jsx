@@ -3,8 +3,8 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 // ── CONFIG ──────────────────────────────────────────────────────────────────
 const WHATSAPP = '5518991850160'
 const AVATAR = '/allana-avatar.png'
-// TODO: substituir pela URL real do cardápio (ou definir VITE_MENU_URL na Vercel)
-const MENU_URL = import.meta.env.VITE_MENU_URL || 'https://instagram.com/araca_grill'
+// URL do cardápio (pode ser sobrescrita por VITE_MENU_URL na Vercel)
+const MENU_URL = import.meta.env.VITE_MENU_URL || 'https://pedido.brendi.com.br/araca-grill-aviacao'
 const ASSINATURA = '— Allana do Araçá Grill'
 const ENDPOINT = '/api/allana'
 const TIMEOUT_MS = 8000
