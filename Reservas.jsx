@@ -526,22 +526,54 @@ function Input({ value, onChange, placeholder, type='text', inputMode, required 
 
 // ── SELETOR DE PESSOAS ────────────────────────────────────────────────────
 function SeletorPessoas({ value, onChange }) {
+  const quick = [2,4,6,8,10,15,20,30]
+  const dec = () => onChange(Math.max(1, value - 1))
+  const inc = () => onChange(Math.min(99, value + 1))
   return (
-    <div style={{ display:'flex', alignItems:'center', gap:0,
-      background:C.bgCard3, border:`1px solid ${C.border}`, borderRadius:16,
-      overflow:'hidden', alignSelf:'flex-start' }}>
-      {[1,2,3,4,5,6,7,8,9,10].map(n => (
-        <button key={n} onClick={()=>onChange(n)}
-          style={{ width:44, height:52, border:'none', background: value===n
-            ? `linear-gradient(135deg, ${C.goldD}, ${C.gold})`
-            : 'transparent',
-            color: value===n ? '#0a0806' : n===value?C.gold:C.textMuted,
-            fontSize:15, fontWeight:value===n?800:500, cursor:'pointer',
-            transition:'all 0.15s', fontFamily:'inherit',
-            borderRight: n<10 ? `1px solid ${C.borderSub}` : 'none' }}>
-          {n}
-        </button>
-      ))}
+    <div>
+      {/* Contador principal */}
+      <div style={{ display:'flex', alignItems:'center', gap:16, marginBottom:14 }}>
+        <div style={{ display:'flex', alignItems:'center', overflow:'hidden',
+          background:C.bgCard3, border:`1px solid ${C.border}`, borderRadius:14 }}>
+          <button onClick={dec} disabled={value<=1}
+            style={{ width:52, height:56, border:'none', borderRight:`1px solid ${C.borderSub}`,
+              background:'transparent', color: value<=1 ? C.textDim : C.gold,
+              fontSize:26, fontWeight:300, cursor: value<=1?'not-allowed':'pointer',
+              fontFamily:'inherit', transition:'color 0.15s', lineHeight:1 }}>
+            −
+          </button>
+          <div style={{ minWidth:72, textAlign:'center', padding:'0 4px' }}>
+            <span style={{ fontSize:28, fontWeight:800, color:C.text,
+              fontVariantNumeric:'tabular-nums', letterSpacing:'-0.02em' }}>
+              {value}
+            </span>
+          </div>
+          <button onClick={inc} disabled={value>=99}
+            style={{ width:52, height:56, border:'none', borderLeft:`1px solid ${C.borderSub}`,
+              background:'transparent', color: value>=99 ? C.textDim : C.gold,
+              fontSize:26, fontWeight:300, cursor: value>=99?'not-allowed':'pointer',
+              fontFamily:'inherit', transition:'color 0.15s', lineHeight:1 }}>
+            +
+          </button>
+        </div>
+        <span style={{ fontSize:14, color:C.textMuted }}>
+          pessoa{value>1?'s':''}
+        </span>
+      </div>
+      {/* Atalhos rápidos */}
+      <div style={{ display:'flex', flexWrap:'wrap', gap:7 }}>
+        {quick.map(n => (
+          <button key={n} onClick={() => onChange(n)}
+            style={{ padding:'7px 14px', border:`1.5px solid ${value===n?C.gold:C.border}`,
+              borderRadius:10, background: value===n ? C.gold15 : C.bgCard3,
+              color: value===n ? C.gold : C.textMuted,
+              fontSize:12, fontWeight: value===n?700:400,
+              cursor:'pointer', fontFamily:'inherit', transition:'all 0.15s',
+              boxShadow: value===n ? `0 0 10px ${C.gold15}` : 'none' }}>
+            {n}
+          </button>
+        ))}
+      </div>
     </div>
   )
 }
@@ -561,7 +593,10 @@ export default function PaginaReservas() {
   const [loading, setLoading]     = useState(false)
   const [sucesso, setSucesso]     = useState(false)
   const [whatsapp, setWhatsapp]   = useState(WHATSAPP_PADRAO)
+  const [grandeGrupoOk, setGrandeGrupoOk] = useState(false)
   const horarioRef = useRef(null)
+
+  const handlePessoas = n => { setPessoas(n); setGrandeGrupoOk(false) }
 
   // Injeta CSS de animações
   useEffect(() => {
@@ -578,10 +613,10 @@ export default function PaginaReservas() {
       .catch(() => {})
   }, [])
 
-  // Reset período se data muda para dia sem almoço
+  // Auto-seleciona jantar quando data escolhida não tem almoço
   useEffect(() => {
-    if (dataSel && periodo==='almoco' && !temAlmoco(dataSel)) {
-      setPeriodo('')
+    if (dataSel && !temAlmoco(dataSel)) {
+      setPeriodo(prev => (prev === 'almoco' || prev === '') ? 'jantar' : prev)
     }
     setHorario('')
   }, [dataSel])
@@ -592,8 +627,9 @@ export default function PaginaReservas() {
 
   const canAlmoco = dataSel ? temAlmoco(dataSel) : true
 
+  const precisaConfirmarGrupo = pessoas > 25 && !grandeGrupoOk
   const podeEnviar = nome.trim() && telefone.trim().replace(/\D/g,'').length>=10
-    && dataSel && periodo && horario && local
+    && dataSel && periodo && horario && local && !precisaConfirmarGrupo
 
   const handleData = ds => { setDataSel(ds); setMostraCalendario(false) }
 
@@ -649,6 +685,7 @@ ${obs.trim()||'Nenhuma'}`
   if (sucesso) return <TelaSuccesso onNova={()=>{
     setSucesso(false); setNome(''); setTelefone(''); setPessoas(2)
     setDataSel(''); setPeriodo(''); setHorario(''); setObs(''); setLocal('')
+    setGrandeGrupoOk(false)
   }} />
 
   const inputBase = {
@@ -734,15 +771,61 @@ ${obs.trim()||'Nenhuma'}`
 
         {/* ── 2. PESSOAS ─────────────────────────────────────── */}
         <div style={sectionCard}>
-          <div style={{ display:'flex', alignItems:'center', gap:6, marginBottom:14 }}>
+          <div style={{ display:'flex', alignItems:'center', gap:6, marginBottom:16 }}>
             <span style={{ fontSize:14 }}>👥</span>
             <span style={{ fontSize:9, fontWeight:800, color:C.goldD, letterSpacing:'0.15em',
               textTransform:'uppercase' }}>Quantidade de pessoas</span>
           </div>
-          <SeletorPessoas value={pessoas} onChange={setPessoas} />
-          <div style={{ fontSize:12, color:C.textDim, marginTop:10 }}>
-            {pessoas} pessoa{pessoas>1?'s':''} selecionada{pessoas>1?'s':''}
-          </div>
+          <SeletorPessoas value={pessoas} onChange={handlePessoas} />
+
+          {/* Confirmação grupo grande */}
+          {pessoas > 25 && !grandeGrupoOk && (
+            <div style={{ marginTop:16, background:'rgba(201,169,110,0.06)',
+              border:`1px solid ${C.gold25}`, borderRadius:14, padding:'16px 18px',
+              animation:'fadeUp 0.3s ease' }}>
+              <div style={{ fontSize:13, fontWeight:700, color:C.gold, marginBottom:6 }}>
+                🎊 Reserva para grupo grande
+              </div>
+              <div style={{ fontSize:12, color:C.textMuted, lineHeight:1.6, marginBottom:14 }}>
+                Você selecionou <strong style={{ color:C.text }}>{pessoas} pessoas</strong>.
+                {' '}A quantidade está correta?
+              </div>
+              <div style={{ display:'flex', gap:10 }}>
+                <button onClick={() => handlePessoas(Math.max(1, pessoas - 1))}
+                  style={{ flex:1, padding:'10px', border:`1px solid ${C.border}`,
+                    borderRadius:10, background:C.bgCard3, color:C.textMuted,
+                    fontSize:13, cursor:'pointer', fontFamily:'inherit' }}>
+                  Corrigir
+                </button>
+                <button onClick={() => setGrandeGrupoOk(true)}
+                  style={{ flex:2, padding:'10px',
+                    border:`1px solid ${C.gold}`, borderRadius:10,
+                    background:`linear-gradient(135deg,${C.goldD},${C.gold})`,
+                    color:'#050301', fontSize:13, fontWeight:700,
+                    cursor:'pointer', fontFamily:'inherit' }}>
+                  Confirmar {pessoas} pessoas ✓
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Agradecimento após confirmação */}
+          {pessoas > 25 && grandeGrupoOk && (
+            <div style={{ marginTop:16, background:'rgba(46,125,82,0.08)',
+              border:'1px solid rgba(46,125,82,0.25)', borderRadius:14,
+              padding:'12px 16px', animation:'fadeUp 0.3s ease',
+              display:'flex', alignItems:'center', gap:12 }}>
+              <span style={{ fontSize:20 }}>✅</span>
+              <div>
+                <div style={{ fontSize:12, fontWeight:700, color:'#5db87a', marginBottom:2 }}>
+                  Quantidade confirmada!
+                </div>
+                <div style={{ fontSize:11, color:C.textDim }}>
+                  Obrigado por informar. Reserva para {pessoas} pessoas registrada.
+                </div>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* ── 3. DATA ─────────────────────────────────────────── */}
