@@ -652,6 +652,16 @@ function AppPrincipal({ usuario, onLogout }) {
     }, { merge: true })
   }
 
+  // Exclusão permanente da reserva: remove o doc do cliente e o status associado.
+  const excluirReserva = async (reserva) => {
+    if (!reserva?.id) return
+    await deleteDoc(doc(db, 'reservas_clientes', reserva.id))
+    if (reserva.key) {
+      const docId = reserva.key.slice(0, 100)
+      try { await deleteDoc(doc(db, 'reservas_confirmacoes', docId)) } catch (_) {}
+    }
+  }
+
   const abrirTurno = async () => {
     const dataOp = toDateStr(new Date())
     const ref = await addDoc(collection(db, 'turnos'), {
@@ -724,7 +734,7 @@ function AppPrincipal({ usuario, onLogout }) {
     } catch (e) { console.warn('Log falhou:', e) }
   }
 
-  const store = { extras, vales, despesas, categorias, pessoas, setores, config, turnoAtivo, updateConfig, addExtra, updateExtra, removeExtra, addPessoa, updatePessoa, removePessoa, addSetor, updateSetor, removeSetor, addVale, updateVale, removeVale, addDespesa, updateDespesa, removeDespesa, addCategoria, updateCategoria, removeCategoria, usuario, onLogout, registrarLog, reservas, reservasStatus, confirmarVisualizacaoReserva, confirmarReserva }
+  const store = { extras, vales, despesas, categorias, pessoas, setores, config, turnoAtivo, updateConfig, addExtra, updateExtra, removeExtra, addPessoa, updatePessoa, removePessoa, addSetor, updateSetor, removeSetor, addVale, updateVale, removeVale, addDespesa, updateDespesa, removeDespesa, addCategoria, updateCategoria, removeCategoria, usuario, onLogout, registrarLog, reservas, reservasStatus, confirmarVisualizacaoReserva, confirmarReserva, excluirReserva }
 
   const tabs = [
     { id: 'extras',    icon: '👤', label: 'Extras'      },
@@ -2618,66 +2628,125 @@ const LABEL_LOCAL = {
   qualquer:      'Sem Preferências',
 }
 
-function imprimirReserva(r) {
-  const espaco  = LABEL_LOCAL[r.local] || r.local || '—'
-  const periodo = r.periodo === 'almoco' ? 'Almoço' : 'Jantar'
-  const data    = r.data ? r.data.split('-').reverse().join('/') : '—'
-  const agora   = new Date().toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'})
+// Escapa HTML para evitar quebra de layout vinda do conteúdo do cliente.
+function escHTML(s) {
+  return String(s ?? '').replace(/[<>&]/g, c => ({'<':'&lt;','>':'&gt;','&':'&amp;'}[c]))
+}
 
+// Renderiza um cupom de reserva (HTML) para EPSON TM-T20 (80mm).
+// Fonte grande, negrito, centralizado — fica visível em cima da mesa.
+function cupomReservaHTML(r) {
+  const nome = escHTML((r.nome || '—').toUpperCase())
+  const data = r.data ? r.data.split('-').reverse().join('/') : '—'
+  const pessoas = r.pessoas ? `${r.pessoas} PESSOA${r.pessoas>1?'S':''}` : '—'
+  const local = escHTML((LABEL_LOCAL[r.local] || r.local || '—').toUpperCase())
+  const obs = r.obs ? escHTML(r.obs) : ''
+
+  return `
+  <section class="cupom">
+    <img class="logo" src="/logo-araca.png" alt="" onerror="this.style.display='none'" />
+    <div class="titulo">RESERVA</div>
+
+    <div class="bloco nome">${nome}</div>
+
+    <div class="hr"></div>
+
+    <div class="rotulo">DATA</div>
+    <div class="bloco">${data}</div>
+
+    <div class="rotulo">PESSOAS</div>
+    <div class="bloco">${pessoas}</div>
+
+    <div class="rotulo">LOCAL</div>
+    <div class="bloco local">${local}</div>
+
+    ${obs ? `
+      <div class="rotulo">OBSERVAÇÃO</div>
+      <div class="bloco obs">${obs}</div>
+    ` : ''}
+  </section>`
+}
+
+// CSS único compartilhado entre impressão individual e em lote.
+const CUPOM_CSS = `
+  @page { size: 80mm auto; margin: 0; }
+  *    { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { background: #fff; color: #000; }
+  body { font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+         width: 80mm; padding: 0; font-weight: 800; }
+  .cupom { width: 72mm; margin: 0 auto;
+           padding: 6mm 4mm 8mm;
+           display: flex; flex-direction: column; align-items: center;
+           text-align: center;
+           page-break-after: always; }
+  .cupom:last-child { page-break-after: auto; }
+  .logo  { width: 46mm; height: auto; display: block;
+           margin-bottom: 4mm; }
+  .titulo { font-size: 22px; font-weight: 900;
+            letter-spacing: 8px; margin-bottom: 5mm; }
+  .rotulo { font-size: 11px; font-weight: 800;
+            letter-spacing: 3px; color: #000;
+            margin-top: 3mm; margin-bottom: 1mm; }
+  .bloco  { font-size: 26px; font-weight: 900;
+            line-height: 1.15; letter-spacing: 0.5px;
+            word-break: break-word; }
+  .nome   { font-size: 30px; margin-top: 2mm; }
+  .local  { font-size: 22px; }
+  .obs    { font-size: 18px; font-weight: 800; line-height: 1.3;
+            padding: 0 2mm; }
+  .hr     { width: 100%; border: none; border-top: 2px dashed #000;
+            margin: 4mm 0 2mm; }
+`
+
+function abrirImpressao(htmlInterno) {
   const html = `<!DOCTYPE html>
 <html><head><meta charset="utf-8"><title>Reserva</title>
-<style>
-  @page { size: 80mm auto; margin: 0; }
-  *     { box-sizing: border-box; margin: 0; padding: 0; }
-  body  { font-family: 'Courier New', monospace; font-size: 10.5px; color: #000;
-          width: 72mm; padding: 5mm 4mm; }
-  h1    { font-size: 15px; text-align: center; letter-spacing: 1.5px; margin-bottom: 1px; }
-  .sub  { font-size: 8.5px; text-align: center; margin-bottom: 5px; }
-  .titulo { font-size: 12px; font-weight: bold; text-align: center;
-            letter-spacing: 3px; margin: 4px 0; }
-  .hr   { border: none; border-top: 1px dashed #000; margin: 3px 0; }
-  .row  { display: flex; justify-content: space-between; padding: 2px 0; line-height: 1.3; }
-  .lbl  { color: #444; white-space: nowrap; padding-right: 6px; }
-  .val  { font-weight: bold; text-align: right; }
-  .obs  { border: 1px dashed #555; padding: 4px 6px; margin-top: 5px;
-          font-size: 9.5px; line-height: 1.5; }
-  .obs-lbl { font-weight: bold; font-size: 9px; text-transform: uppercase;
-             letter-spacing: 1px; margin-bottom: 2px; }
-  .ts   { font-size: 8px; text-align: center; color: #666; margin-top: 5px; }
-</style></head>
-<body>
-<h1>ARAÇÁ GRILL</h1>
-<div class="sub">Restaurante &amp; Choperia</div>
-<div class="hr"></div>
-<div class="titulo">RESERVA</div>
-<div class="hr"></div>
-<div class="row"><span class="lbl">Nome</span><span class="val">${r.nome||'—'}</span></div>
-<div class="row"><span class="lbl">Telefone</span><span class="val">${r.telefone||'—'}</span></div>
-<div class="hr"></div>
-<div class="row"><span class="lbl">Data</span><span class="val">${data}</span></div>
-<div class="row"><span class="lbl">Período</span><span class="val">${periodo}</span></div>
-<div class="row"><span class="lbl">Horário</span><span class="val">${r.horario||'—'}</span></div>
-<div class="row"><span class="lbl">Pessoas</span><span class="val">${r.pessoas||'—'}</span></div>
-<div class="hr"></div>
-<div class="row"><span class="lbl">Local</span><span class="val">${espaco}</span></div>
-${r.obs ? `<div class="obs"><div class="obs-lbl">Observações</div>${r.obs}</div>` : ''}
-<div class="hr"></div>
-<div class="ts">Impresso: ${agora}</div>
-</body></html>`
+<style>${CUPOM_CSS}</style></head>
+<body>${htmlInterno}</body></html>`
 
   const win = window.open('', '_blank', 'width=440,height=620,left=200,top=80')
   if (!win) return
   win.document.write(html)
   win.document.close()
   win.focus()
-  setTimeout(() => win.print(), 500)
+
+  // Aguarda TODAS as imagens carregarem antes de imprimir (logo é crítica).
+  const start = () => setTimeout(() => win.print(), 250)
+  const imgs = Array.from(win.document.querySelectorAll('img'))
+  const pendentes = imgs.filter(i => !i.complete)
+  if (pendentes.length === 0) return start()
+  let restantes = pendentes.length
+  const tick = () => { if (--restantes <= 0) start() }
+  pendentes.forEach(i => { i.addEventListener('load', tick); i.addEventListener('error', tick) })
+  // fallback de segurança
+  setTimeout(start, 1500)
+}
+
+function imprimirReserva(r) {
+  abrirImpressao(cupomReservaHTML(r))
+}
+
+function imprimirReservasDoDia(lista) {
+  if (!lista || lista.length === 0) return
+  abrirImpressao(lista.map(cupomReservaHTML).join(''))
 }
 
 function TabReservas({ store, today }) {
-  const { reservas, reservasStatus, confirmarVisualizacaoReserva, confirmarReserva, usuario } = store
+  const { reservas, reservasStatus, confirmarVisualizacaoReserva, confirmarReserva, excluirReserva, usuario } = store
 
   const [filtro, setFiltro] = useState('hoje')
   const [busca, setBusca] = useState('')
+  const [confirmandoExclusao, setConfirmandoExclusao] = useState(null)
+  const [excluindo, setExcluindo] = useState(false)
+
+  const fazerExclusao = async () => {
+    if (!confirmandoExclusao) return
+    setExcluindo(true)
+    try { await excluirReserva(confirmandoExclusao) } finally {
+      setExcluindo(false)
+      setConfirmandoExclusao(null)
+    }
+  }
   const [dataInicio, setDataInicio] = useState(today)
   const [dataFim, setDataFim] = useState(today)
 
@@ -2755,7 +2824,7 @@ function TabReservas({ store, today }) {
           border:`1px solid ${reservasHoje.length>0?'#9a752033':C.border}`}}>
           <div style={{display:'flex',alignItems:'center',gap:10}}>
             <span style={{fontSize:26}}>📅</span>
-            <div>
+            <div style={{flex:1,minWidth:0}}>
               <div style={{fontSize:14,fontWeight:800,
                 color:reservasHoje.length>0?'#c9a96e':C.textMuted}}>
                 {reservasHoje.length>0
@@ -2768,6 +2837,20 @@ function TabReservas({ store, today }) {
                 </div>
               )}
             </div>
+            {reservasHoje.length>0&&(
+              <button onClick={()=>imprimirReservasDoDia(reservasHoje)}
+                title="Imprimir todas as reservas de hoje"
+                style={{
+                  padding:'8px 12px',borderRadius:10,
+                  border:'1px solid #c9a96e55',
+                  background:'#c9a96e18',color:'#c9a96e',
+                  fontSize:11,fontWeight:700,cursor:'pointer',
+                  fontFamily:'inherit',display:'flex',alignItems:'center',gap:6,
+                  whiteSpace:'nowrap',flexShrink:0,
+                }}>
+                🖨️ Imprimir todas
+              </button>
+            )}
           </div>
         </div>
       )}
@@ -2815,13 +2898,29 @@ function TabReservas({ store, today }) {
                   </span>
                 )}
               </div>
-              <div style={{textAlign:'right',flexShrink:0,marginLeft:10}}>
-                <div style={{fontSize:20,fontWeight:800,color:ehHoje?'#9a7520':C.primary}}>
-                  {reserva.horario||'—'}
+              <div style={{display:'flex',alignItems:'flex-start',gap:8,flexShrink:0,marginLeft:10}}>
+                <div style={{textAlign:'right'}}>
+                  <div style={{fontSize:20,fontWeight:800,color:ehHoje?'#9a7520':C.primary}}>
+                    {reserva.horario||'—'}
+                  </div>
+                  <div style={{fontSize:11,color:C.textMuted}}>
+                    {dayLabel(reserva.data)}
+                  </div>
                 </div>
-                <div style={{fontSize:11,color:C.textMuted}}>
-                  {dayLabel(reserva.data)}
-                </div>
+                <button
+                  onClick={()=>setConfirmandoExclusao(reserva)}
+                  title="Excluir reserva permanentemente"
+                  aria-label="Excluir reserva"
+                  style={{
+                    width:32,height:32,borderRadius:8,
+                    border:`1px solid ${C.danger}33`,
+                    background:`${C.danger}0d`,
+                    color:C.danger,fontSize:14,cursor:'pointer',
+                    display:'flex',alignItems:'center',justifyContent:'center',
+                    fontFamily:'inherit',padding:0,lineHeight:1,
+                  }}>
+                  🗑
+                </button>
               </div>
             </div>
 
@@ -2918,6 +3017,48 @@ function TabReservas({ store, today }) {
           </div>
         )
       })}
+
+      {confirmandoExclusao && (
+        <Modal title="Excluir reserva" onClose={()=>!excluindo&&setConfirmandoExclusao(null)}>
+          <div style={{display:'flex',flexDirection:'column',gap:14}}>
+            <div style={{
+              background:`${C.danger}0d`,border:`1px solid ${C.danger}33`,
+              borderRadius:10,padding:'12px 14px',color:C.text,fontSize:13,lineHeight:1.5,
+            }}>
+              <div style={{fontWeight:800,color:C.danger,marginBottom:6,fontSize:13}}>
+                Esta ação é permanente
+              </div>
+              A reserva será removida definitivamente do sistema, junto com seu
+              status de visualização e confirmação. Não é possível desfazer.
+            </div>
+
+            <div style={{
+              background:C.bgCard2,border:`1px solid ${C.border}`,
+              borderRadius:10,padding:'10px 14px',
+            }}>
+              <div style={{fontSize:15,fontWeight:800,color:C.text}}>
+                {confirmandoExclusao.nome||'—'}
+              </div>
+              <div style={{fontSize:12,color:C.textMuted,marginTop:2}}>
+                {(confirmandoExclusao.data||'').split('-').reverse().join('/')}
+                {confirmandoExclusao.horario?` · ${confirmandoExclusao.horario}`:''}
+                {confirmandoExclusao.pessoas?` · ${confirmandoExclusao.pessoas} pessoa${confirmandoExclusao.pessoas>1?'s':''}`:''}
+              </div>
+            </div>
+
+            <div style={{display:'flex',gap:8}}>
+              <button onClick={()=>setConfirmandoExclusao(null)} disabled={excluindo}
+                style={{...S.btn(C.textDim,true)}}>
+                Cancelar
+              </button>
+              <button onClick={fazerExclusao} disabled={excluindo}
+                style={{...S.btn(C.danger),flex:2}}>
+                {excluindo?'Excluindo…':'Excluir permanentemente'}
+              </button>
+            </div>
+          </div>
+        </Modal>
+      )}
     </div>
   )
 }
