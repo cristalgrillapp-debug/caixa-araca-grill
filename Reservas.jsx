@@ -672,7 +672,7 @@ ${obs.trim()||'Nenhuma'}`
     setSucesso(true)
     setTimeout(() => {
       window.open(`https://wa.me/${whatsapp}?text=${encodeURIComponent(msg)}`, '_blank')
-    }, 1200)
+    }, 3000)
   }
 
   if (sucesso) return <TelaSuccesso onNova={()=>{
