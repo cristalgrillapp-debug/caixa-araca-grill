@@ -74,13 +74,11 @@ const CSS = `
 .all-msg { animation: allMsgIn .32s ${EASE.out} both; }
 
 .all-fab {
-  transition: transform .35s ${EASE.spring}, opacity .25s ${EASE.smooth}, box-shadow .35s ${EASE.smooth};
-  will-change: transform, opacity;
+  transition: transform .25s ${EASE.spring}, box-shadow .35s ${EASE.smooth};
   -webkit-tap-highlight-color: transparent;
+  box-shadow: 0 8px 28px rgba(0,0,0,0.45), 0 0 0 1px rgba(212,175,106,0.06), inset 0 1px 0 rgba(255,255,255,0.06);
 }
 .all-fab:active { transform: scale(0.94); }
-.all-fab.is-scrolling { transform: scale(0.86); opacity: 0.72; }
-.all-fab.is-idle      { animation: allBreathe 4.5s ease-in-out infinite; }
 
 .all-fab-ring {
   position: absolute; inset: -2px; border-radius: 999px;
@@ -291,7 +289,6 @@ export default function AllanaChat() {
   const [pulso, setPulso] = useState(false)
   const [iaBloqueada, setIaBloqueada] = useState(false)
   const [kbOffset, setKbOffset] = useState(0)
-  const [scrolling, setScrolling] = useState(false)
 
   const assinaturaUsada = useRef(false)
   const handoffsSemClique = useRef(0)
@@ -299,7 +296,6 @@ export default function AllanaChat() {
   const scrollRef = useRef(null)
   const inputRef = useRef(null)
   const interagiu = useRef(false)
-  const scrollTimer = useRef(null)
 
   // CSS injetado
   useEffect(() => {
@@ -321,21 +317,6 @@ export default function AllanaChat() {
   useEffect(() => {
     if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight
   }, [mensagens, carregando])
-
-  // Comportamento ao rolar a página: FAB encolhe levemente
-  useEffect(() => {
-    if (aberto) return
-    const onScroll = () => {
-      setScrolling(true)
-      if (scrollTimer.current) clearTimeout(scrollTimer.current)
-      scrollTimer.current = setTimeout(() => setScrolling(false), 220)
-    }
-    window.addEventListener('scroll', onScroll, { passive: true })
-    return () => {
-      window.removeEventListener('scroll', onScroll)
-      if (scrollTimer.current) clearTimeout(scrollTimer.current)
-    }
-  }, [aberto])
 
   // Reposiciona ao subir teclado virtual
   useEffect(() => {
@@ -463,15 +444,9 @@ export default function AllanaChat() {
 
   // ── FAB (fechado) ─────────────────────────────────────────────────────────
   if (!aberto) {
-    const fabClass = [
-      'all-fab',
-      scrolling ? 'is-scrolling' : 'is-idle',
-      pulso ? 'is-pulse' : '',
-    ].filter(Boolean).join(' ')
-
     return (
       <button
-        className={fabClass}
+        className={`all-fab${pulso ? ' is-pulse' : ''}`}
         onClick={abrir}
         aria-label="Abrir chat da Allana, concierge digital do Araçá Grill"
         style={{
