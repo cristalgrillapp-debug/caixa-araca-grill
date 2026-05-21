@@ -2,6 +2,9 @@ import { useState, useEffect, useMemo, useRef } from 'react'
 import { db } from './firebase'
 import { collection, addDoc, doc, getDoc } from 'firebase/firestore'
 
+// Número do WhatsApp padrão (carregado do Firebase se disponível)
+const WHATSAPP_PADRAO = '5518996530959'
+
 // ── CORES ─────────────────────────────────────────────────────────────────
 const C = {
   bg:        '#070503',
@@ -528,7 +531,7 @@ export default function PaginaReservas() {
   const [mostraModal, setMostraModal] = useState(false)
   const [loading, setLoading]     = useState(false)
   const [sucesso, setSucesso]     = useState(false)
-  const [cfg, setCfg]             = useState({ whatsapp:'5518996530959', scriptUrl:'' })
+  const [whatsapp, setWhatsapp]   = useState(WHATSAPP_PADRAO)
   const horarioRef = useRef(null)
 
   // Injeta CSS de animações
@@ -539,15 +542,10 @@ export default function PaginaReservas() {
     return () => document.head.removeChild(el)
   }, [])
 
-  // Carrega config do Firebase
+  // Carrega WhatsApp do Firebase config
   useEffect(() => {
     getDoc(doc(db, 'configuracoes', 'geral'))
-      .then(snap => {
-        if (snap.exists()) {
-          const d = snap.data()
-          setCfg({ whatsapp: d.whatsapp_pix||'5518996530959', scriptUrl: d.reservas_script_url||'' })
-        }
-      })
+      .then(snap => { if (snap.exists()) setWhatsapp(snap.data().whatsapp_pix||WHATSAPP_PADRAO) })
       .catch(() => {})
   }, [])
 
@@ -583,15 +581,6 @@ export default function PaginaReservas() {
       await addDoc(collection(db, 'reservas_clientes'), reserva)
     } catch(e) { console.warn('Firebase:', e) }
 
-    if (cfg.scriptUrl) {
-      try {
-        await fetch(cfg.scriptUrl, {
-          method:'POST', body:JSON.stringify(reserva),
-          headers:{'Content-Type':'application/json'},
-        })
-      } catch(e) { console.warn('Apps Script:', e) }
-    }
-
     const espaco = ESPACOS.find(e=>e.id===local)?.titulo || local
     const periodoLabel = periodo==='almoco' ? 'Almoço' : 'Jantar'
     const msg = `Olá, gostaria de informar meu interesse em fazer uma reserva com vocês.
@@ -624,7 +613,7 @@ ${obs.trim()||'Nenhuma'}`
     setMostraModal(false)
     setSucesso(true)
     setTimeout(() => {
-      window.open(`https://wa.me/${cfg.whatsapp}?text=${encodeURIComponent(msg)}`, '_blank')
+      window.open(`https://wa.me/${whatsapp}?text=${encodeURIComponent(msg)}`, '_blank')
     }, 1200)
   }
 

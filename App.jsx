@@ -39,55 +39,12 @@ const toDateStr = (d) => {
   return `${y}-${m}-${day}`
 }
 
-function parseDataReserva(raw) {
-  if (!raw) return ''
-  const s = String(raw).trim()
-  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s
-  const m1 = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/)
-  if (m1) return `${m1[3]}-${m1[2].padStart(2,'0')}-${m1[1].padStart(2,'0')}`
-  const m2 = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2})$/)
-  if (m2) return `20${m2[3]}-${m2[2].padStart(2,'0')}-${m2[1].padStart(2,'0')}`
-  return ''
-}
-
-async function fetchReservasSheet(sheetId, apiKey, sheetName, headerRow, colData, colHorario, colNome, colPessoas, colObs) {
-  const range = encodeURIComponent(`${sheetName || 'Reservas'}!A:Z`)
-  const url = `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/${range}?key=${apiKey}`
-  const res = await fetch(url)
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({}))
-    throw new Error(err?.error?.message || `Erro HTTP ${res.status}`)
-  }
-  const json = await res.json()
-  const rows = json.values || []
-  const skip = parseInt(headerRow) || 1
-  return rows.slice(skip).map((row, idx) => {
-    const data = parseDataReserva(row[colData] || '')
-    const horario = (row[colHorario] || '').trim()
-    const nome = (row[colNome] || '').trim()
-    const pessoas = (row[colPessoas] || '').trim()
-    const obs = (row[colObs] || '').trim()
-    const safeKey = `${data}_${nome.toLowerCase().replace(/[^a-z0-9]/g,'-')}_${horario.replace(':','')}`
-    return { data, horario, nome, pessoas, obs, key: safeKey, rowIdx: idx + skip + 1 }
-  }).filter(r => r.data && r.nome)
-}
-
 const DEFAULT_CONFIG = {
   nome_estabelecimento: 'ARACÁ GRILL',
   whatsapp_pix: '5518996530959',
   horario_virada_h: 2,
   horario_virada_m: 30,
   senha_mestre: '',
-  reservas_sheet_id: '',
-  reservas_api_key: '',
-  reservas_sheet_name: 'Reservas',
-  reservas_header_row: 1,
-  reservas_col_data: 0,
-  reservas_col_horario: 1,
-  reservas_col_nome: 2,
-  reservas_col_pessoas: 3,
-  reservas_col_obs: 4,
-  reservas_script_url: '',
 }
 
 const todayOp = (cfg) => {
@@ -422,23 +379,13 @@ function AppPrincipal({ usuario, onLogout }) {
   const [carregandoTurno, setCarregandoTurno] = useState(true)
   const migrandoCats = useRef(false)
 
-  const [reservasSheets, setReservasSheets] = useState([])
-  const [reservasClientes, setReservasClientes] = useState([])
+  const [reservas, setReservas] = useState([])
   const [reservasStatus, setReservasStatus] = useState({})
-  const [reservasLoading, setReservasLoading] = useState(false)
-  const [reservasErro, setReservasErro] = useState(null)
-  const intervalReservas = useRef(null)
+  const [novasReservas, setNovasReservas] = useState([])
+  const idsConhecidos = useRef(null)
 
   // today vem do turno ativo — se não tiver, usa data real
   const today = turnoAtivo?.data_op || toDateStr(new Date())
-
-  // Merge: Google Sheets + Firebase (clientes). Chave idêntica → Firebase prevalece
-  const reservas = useMemo(() => {
-    const mapa = {}
-    reservasSheets.forEach(r => { mapa[r.key] = r })
-    reservasClientes.forEach(r => { mapa[r.key] = { ...mapa[r.key], ...r } })
-    return Object.values(mapa).sort((a,b)=>a.data.localeCompare(b.data)||(a.horario||'').localeCompare(b.horario||''))
-  }, [reservasSheets, reservasClientes])
 
   const updateConfig = async (changes) => {
     const novo = { ...config, ...changes }
@@ -557,14 +504,23 @@ function AppPrincipal({ usuario, onLogout }) {
         setReservasStatus(map)
       }),
       onSnapshot(collection(db, 'reservas_clientes'), s => {
-        setReservasClientes(s.docs.map(d => {
+        const convertida = s.docs.map(d => {
           const r = d.data()
           const safeKey = `${r.data}_${(r.nome||'').toLowerCase().replace(/[^a-z0-9]/g,'-')}_${(r.horario||'').replace(':','')}`
           return { data:r.data, horario:r.horario, nome:r.nome, pessoas:r.pessoas,
-            obs:r.observacoes||'', key:safeKey, rowIdx:null,
-            local:r.local, periodo:r.periodo, telefone:r.telefone,
-            fromFirebase:true, id:d.id }
-        }))
+            obs:r.observacoes||'', key:safeKey, local:r.local, periodo:r.periodo,
+            telefone:r.telefone, id:d.id }
+        })
+        if (idsConhecidos.current === null) {
+          idsConhecidos.current = new Set(s.docs.map(d => d.id))
+        } else {
+          const novas = s.docs.filter(d => !idsConhecidos.current.has(d.id))
+          if (novas.length > 0) {
+            novas.forEach(d => idsConhecidos.current.add(d.id))
+            setNovasReservas(prev => [...prev, ...novas.map(d => ({ id:d.id, ...d.data() }))])
+          }
+        }
+        setReservas(convertida.sort((a,b)=>a.data.localeCompare(b.data)||(a.horario||'').localeCompare(b.horario||'')))
       }),
       onSnapshot(collection(db, 'pessoas'), s => setPessoas(s.docs.map(d => ({ id: d.id, ...d.data() })))),
       onSnapshot(collection(db, 'setores'), s => {
@@ -587,42 +543,6 @@ function AppPrincipal({ usuario, onLogout }) {
     ]
     return () => unsubs.forEach(u => u())
   }, [])
-
-  useEffect(() => {
-    clearInterval(intervalReservas.current)
-    if (!config.reservas_sheet_id || !config.reservas_api_key) {
-      setReservasSheets([])
-      setReservasLoading(false)
-      setReservasErro(null)
-      return
-    }
-    const carregar = async () => {
-      setReservasLoading(true)
-      setReservasErro(null)
-      try {
-        const data = await fetchReservasSheet(
-          config.reservas_sheet_id, config.reservas_api_key,
-          config.reservas_sheet_name || 'Reservas',
-          config.reservas_header_row ?? 1,
-          config.reservas_col_data ?? 0,
-          config.reservas_col_horario ?? 1,
-          config.reservas_col_nome ?? 2,
-          config.reservas_col_pessoas ?? 3,
-          config.reservas_col_obs ?? 4
-        )
-        setReservasSheets(data)
-      } catch (e) {
-        setReservasErro(e.message)
-      } finally {
-        setReservasLoading(false)
-      }
-    }
-    carregar()
-    intervalReservas.current = setInterval(carregar, 2 * 60 * 1000)
-    return () => clearInterval(intervalReservas.current)
-  }, [config.reservas_sheet_id, config.reservas_api_key, config.reservas_sheet_name,
-      config.reservas_header_row, config.reservas_col_data, config.reservas_col_horario,
-      config.reservas_col_nome, config.reservas_col_pessoas, config.reservas_col_obs])
 
   const addExtra = async (data) => await addDoc(collection(db, 'extras'), data)
   const updateExtra = async (id, data) => await updateDoc(doc(db, 'extras', id), data)
@@ -739,7 +659,7 @@ function AppPrincipal({ usuario, onLogout }) {
     } catch (e) { console.warn('Log falhou:', e) }
   }
 
-  const store = { extras, vales, despesas, categorias, pessoas, setores, config, turnoAtivo, updateConfig, addExtra, updateExtra, removeExtra, addPessoa, updatePessoa, removePessoa, addSetor, updateSetor, removeSetor, addVale, updateVale, removeVale, addDespesa, updateDespesa, removeDespesa, addCategoria, updateCategoria, removeCategoria, usuario, onLogout, registrarLog, reservas, reservasStatus, reservasLoading, reservasErro, confirmarVisualizacaoReserva, confirmarReserva }
+  const store = { extras, vales, despesas, categorias, pessoas, setores, config, turnoAtivo, updateConfig, addExtra, updateExtra, removeExtra, addPessoa, updatePessoa, removePessoa, addSetor, updateSetor, removeSetor, addVale, updateVale, removeVale, addDespesa, updateDespesa, removeDespesa, addCategoria, updateCategoria, removeCategoria, usuario, onLogout, registrarLog, reservas, reservasStatus, confirmarVisualizacaoReserva, confirmarReserva }
 
   const tabs = [
     { id: 'extras',    icon: '👤', label: 'Extras'      },
@@ -786,7 +706,7 @@ function AppPrincipal({ usuario, onLogout }) {
         const hoje = turnoAtivo?.data_op || toDateStr(new Date())
         const reservasHojeBanner = reservas.filter(r => r.data === hoje)
         const naoVistBanner = reservasHojeBanner.filter(r => !reservasStatus[r.key]?.visualizado).length
-        if (!config.reservas_sheet_id || reservasHojeBanner.length === 0 || naoVistBanner === 0) return null
+        if (reservasHojeBanner.length === 0 || naoVistBanner === 0) return null
         return (
           <AlertaReservasHoje
             count={naoVistBanner}
@@ -870,6 +790,29 @@ function AppPrincipal({ usuario, onLogout }) {
       {modal?.type === 'redefinirSenha'  && <ModalRedefinirSenha store={store} onClose={() => setModal(null)} />}
       {modal?.type === 'addVale'         && <ModalNovoVale store={store} today={today} onClose={() => setModal(null)} />}
       {modal?.type === 'addDespesa'      && <ModalNovaDespesa store={store} today={today} onClose={() => setModal(null)} />}
+
+      {/* Notificações de novas reservas em tempo real */}
+      {novasReservas.map((r, i) => (
+        <NotificacaoReserva
+          key={r.id}
+          reserva={r}
+          index={i}
+          onAbrir={() => {
+            setTab('relatorios')
+            setRelCat('reservas')
+            setNovasReservas(prev => prev.filter(x => x.id !== r.id))
+          }}
+          onDismiss={() => setNovasReservas(prev => prev.filter(x => x.id !== r.id))}
+        />
+      ))}
+
+      {/* CSS para animação das notificações */}
+      <style>{`
+        @keyframes notifSlide {
+          from { opacity:0; transform:translateY(24px) scale(0.96) }
+          to   { opacity:1; transform:translateY(0) scale(1) }
+        }
+      `}</style>
     </div>
   )
 }
@@ -2289,6 +2232,63 @@ function PesquisaFuncionario({ store, extras, setores, from, to, config }) {
 }
 
 
+// ─── NOTIFICAÇÃO NOVA RESERVA (TEMPO REAL) ───────────────────────────────────
+
+function NotificacaoReserva({ reserva, onAbrir, onDismiss, index }) {
+  const dow = new Date((reserva.data||'')+'T12:00:00').getDay()
+  const diasAbrev = ['Dom','Seg','Ter','Qua','Qui','Sex','Sáb']
+  const dataFmt = reserva.data
+    ? `${diasAbrev[dow]}, ${reserva.data.split('-').slice(1).reverse().join('/')}`
+    : ''
+  return (
+    <div style={{
+      position:'fixed', bottom: 80 + index * 90, right:0, left:0,
+      maxWidth:460, margin:'0 auto', zIndex:500,
+      padding:'0 16px',
+      animation:'notifSlide 0.4s cubic-bezier(0.34,1.56,0.64,1) both',
+    }}>
+      <div style={{
+        background:'linear-gradient(135deg,#1c1200,#2a1a00)',
+        border:'1.5px solid #9a752055',
+        borderRadius:16, padding:'14px 16px',
+        boxShadow:'0 8px 32px rgba(0,0,0,0.6), 0 0 0 1px rgba(201,169,110,0.1)',
+        display:'flex', alignItems:'center', gap:12,
+      }}>
+        <div style={{ width:40, height:40, borderRadius:12, flexShrink:0,
+          background:'rgba(201,169,110,0.12)', border:'1px solid rgba(201,169,110,0.2)',
+          display:'flex', alignItems:'center', justifyContent:'center', fontSize:20 }}>
+          📅
+        </div>
+        <div style={{ flex:1, minWidth:0 }}>
+          <div style={{ fontSize:11, fontWeight:800, color:'#c9a96e', letterSpacing:'0.06em', marginBottom:2 }}>
+            NOVA RESERVA
+          </div>
+          <div style={{ fontSize:14, fontWeight:700, color:'#f5f0e8', overflow:'hidden',
+            textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
+            {reserva.nome||'—'}
+          </div>
+          <div style={{ fontSize:11, color:'rgba(201,169,110,0.6)' }}>
+            {dataFmt}{reserva.horario ? ` · ${reserva.horario}` : ''}{reserva.pessoas ? ` · ${reserva.pessoas} pessoa${reserva.pessoas>1?'s':''}` : ''}
+          </div>
+        </div>
+        <div style={{ display:'flex', gap:6, flexShrink:0 }}>
+          <button onClick={onAbrir}
+            style={{ background:'rgba(201,169,110,0.15)', border:'1px solid rgba(201,169,110,0.3)',
+              borderRadius:8, padding:'6px 12px', fontSize:11, fontWeight:700,
+              color:'#c9a96e', cursor:'pointer', fontFamily:'inherit' }}>
+            Ver
+          </button>
+          <button onClick={onDismiss}
+            style={{ background:'transparent', border:'none', color:'rgba(201,169,110,0.35)',
+              fontSize:18, cursor:'pointer', padding:'4px 2px', lineHeight:1 }}>
+            ×
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ─── ALERTA RESERVAS ─────────────────────────────────────────────────────────
 
 function AlertaReservasHoje({ count, onNavigate }) {
@@ -2545,8 +2545,7 @@ function TabRelatoriosCentral({ store, today, extCat, setExtCat }) {
 // ─── ABA RESERVAS ────────────────────────────────────────────────────────────
 
 function TabReservas({ store, today }) {
-  const { config, reservas, reservasStatus, reservasLoading, reservasErro,
-          confirmarVisualizacaoReserva, confirmarReserva, usuario } = store
+  const { reservas, reservasStatus, confirmarVisualizacaoReserva, confirmarReserva, usuario } = store
 
   const [filtro, setFiltro] = useState('hoje')
   const [busca, setBusca] = useState('')
@@ -2568,18 +2567,6 @@ function TabReservas({ store, today }) {
   const reservasHoje  = useMemo(()=>reservas.filter(r=>r.data===today),[reservas,today])
   const naoVisualizadas = reservasHoje.filter(r=>!reservasStatus[r.key]?.visualizado).length
   const confirmadas     = reservasHoje.filter(r=>reservasStatus[r.key]?.confirmado).length
-
-  if (!config.reservas_sheet_id || !config.reservas_api_key) {
-    return (
-      <div style={{...S.card,textAlign:'center',padding:32}}>
-        <div style={{fontSize:40,marginBottom:12}}>📅</div>
-        <div style={{fontSize:16,fontWeight:700,color:C.text,marginBottom:8}}>Reservas não configuradas</div>
-        <div style={{fontSize:13,color:C.textMuted,lineHeight:1.6}}>
-          Acesse <b>Config → Geral → Reservas</b> para conectar a planilha do Google Sheets.
-        </div>
-      </div>
-    )
-  }
 
   return (
     <div>
@@ -2632,22 +2619,8 @@ function TabReservas({ store, today }) {
           fontSize:14,color:C.textDim,pointerEvents:'none'}}>🔍</span>
       </div>
 
-      {/* Loading / Erro */}
-      {reservasLoading&&(
-        <div style={{textAlign:'center',padding:32,color:C.textMuted}}>
-          <div style={{fontSize:28}}>⏳</div>
-          <div style={{marginTop:8,fontSize:13}}>Sincronizando com a planilha...</div>
-        </div>
-      )}
-      {reservasErro&&!reservasLoading&&(
-        <div style={{...S.card,border:`1px solid ${C.danger}44`,background:C.danger+'08',marginBottom:12}}>
-          <div style={{fontSize:13,fontWeight:700,color:C.danger}}>⚠️ Erro ao carregar planilha</div>
-          <div style={{fontSize:12,color:C.textMuted,marginTop:4,lineHeight:1.5}}>{reservasErro}</div>
-        </div>
-      )}
-
       {/* Banner do dia */}
-      {!reservasLoading&&!reservasErro&&filtro==='hoje'&&(
+      {filtro==='hoje'&&(
         <div style={{...S.card,marginBottom:14,padding:'14px 18px',
           background:reservasHoje.length>0?'linear-gradient(135deg,#1a1200,#2d1f00)':C.bgCard2,
           border:`1px solid ${reservasHoje.length>0?'#9a752033':C.border}`}}>
@@ -2671,7 +2644,7 @@ function TabReservas({ store, today }) {
       )}
 
       {/* Lista vazia */}
-      {!reservasLoading&&reservasFiltradas.length===0&&(
+      {reservasFiltradas.length===0&&(
         <div style={{textAlign:'center',padding:32,color:C.textMuted,fontSize:13}}>
           {reservas.length===0?'Nenhuma reserva na planilha':'Nenhuma reserva neste período'}
         </div>
@@ -3774,35 +3747,6 @@ function TabConfig({ store, setModal }) {
   const [whatsapp, setWhatsapp] = useState(config.whatsapp_pix)
   const [savedMsg, setSavedMsg] = useState('')
 
-  const [rsSheetId, setRsSheetId]       = useState(config.reservas_sheet_id || '')
-  const [rsApiKey, setRsApiKey]         = useState(config.reservas_api_key || '')
-  const [rsSheetName, setRsSheetName]   = useState(config.reservas_sheet_name || 'Reservas')
-  const [rsHeaderRow, setRsHeaderRow]   = useState(String(config.reservas_header_row ?? 1))
-  const [rsColData, setRsColData]       = useState(String(config.reservas_col_data ?? 0))
-  const [rsColHorario, setRsColHorario] = useState(String(config.reservas_col_horario ?? 1))
-  const [rsColNome, setRsColNome]       = useState(String(config.reservas_col_nome ?? 2))
-  const [rsColPessoas, setRsColPessoas] = useState(String(config.reservas_col_pessoas ?? 3))
-  const [rsColObs, setRsColObs]         = useState(String(config.reservas_col_obs ?? 4))
-  const [rsScriptUrl, setRsScriptUrl]   = useState(config.reservas_script_url || '')
-  const [rsSavedMsg, setRsSavedMsg]     = useState('')
-
-  const salvarReservas = () => {
-    updateConfig({
-      reservas_sheet_id: rsSheetId.trim(),
-      reservas_api_key: rsApiKey.trim(),
-      reservas_sheet_name: rsSheetName.trim() || 'Reservas',
-      reservas_header_row: parseInt(rsHeaderRow) || 1,
-      reservas_col_data: parseInt(rsColData) || 0,
-      reservas_col_horario: parseInt(rsColHorario) || 1,
-      reservas_col_nome: parseInt(rsColNome) || 2,
-      reservas_col_pessoas: parseInt(rsColPessoas) || 3,
-      reservas_col_obs: parseInt(rsColObs) || 4,
-      reservas_script_url: rsScriptUrl.trim(),
-    })
-    setRsSavedMsg('✓ Salvo!')
-    setTimeout(() => setRsSavedMsg(''), 2500)
-  }
-
   const salvarGeral = () => {
     updateConfig({
       nome_estabelecimento: nomeEstab.trim() || 'ARACÁ GRILL',
@@ -3854,72 +3798,6 @@ function TabConfig({ store, setModal }) {
               {savedMsg || 'Salvar configurações'}
             </button>
           </div>
-          {/* Reservas config */}
-          <div style={S.card}>
-            <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 4, display:'flex', alignItems:'center', gap:8 }}>
-              📅 Reservas — Google Sheets
-            </div>
-            <div style={{ fontSize: 12, color: C.textMuted, marginBottom: 14, lineHeight: 1.5 }}>
-              Conecte a planilha existente do Google Drive para listar e confirmar reservas.
-            </div>
-            <div style={{ marginBottom: 10 }}>
-              <label style={S.label}>ID da planilha</label>
-              <input value={rsSheetId} onChange={e=>setRsSheetId(e.target.value)} style={S.input}
-                placeholder="Ex: 1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgVE2upms" />
-              <div style={{ fontSize: 11, color: '#999', marginTop: 4 }}>
-                Extraia da URL: docs.google.com/spreadsheets/d/<b>ID</b>/edit
-              </div>
-            </div>
-            <div style={{ marginBottom: 10 }}>
-              <label style={S.label}>Chave de API do Google</label>
-              <input value={rsApiKey} onChange={e=>setRsApiKey(e.target.value)} style={S.input}
-                placeholder="AIza..." type="password" />
-              <div style={{ fontSize: 11, color: '#999', marginTop: 4 }}>
-                Crie em console.cloud.google.com → APIs → Google Sheets API → Credenciais
-              </div>
-            </div>
-            <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:8, marginBottom:10 }}>
-              <div>
-                <label style={S.label}>Nome da aba</label>
-                <input value={rsSheetName} onChange={e=>setRsSheetName(e.target.value)} style={S.input} placeholder="Reservas" />
-              </div>
-              <div>
-                <label style={S.label}>Linhas de cabeçalho</label>
-                <input value={rsHeaderRow} onChange={e=>setRsHeaderRow(e.target.value)} style={S.input}
-                  placeholder="1" inputMode="numeric" />
-              </div>
-            </div>
-            <div style={{ fontSize: 12, fontWeight: 700, color: C.textMuted, marginBottom: 8 }}>
-              Mapeamento de colunas (0 = A, 1 = B, 2 = C…)
-            </div>
-            <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:6, marginBottom:14 }}>
-              {[
-                ['Data',rsColData,setRsColData],
-                ['Horário',rsColHorario,setRsColHorario],
-                ['Nome',rsColNome,setRsColNome],
-                ['Pessoas',rsColPessoas,setRsColPessoas],
-                ['Obs.',rsColObs,setRsColObs],
-              ].map(([label,val,set])=>(
-                <div key={label}>
-                  <label style={{...S.label,fontSize:10}}>{label}</label>
-                  <input value={val} onChange={e=>set(e.target.value)} inputMode="numeric"
-                    style={{...S.input,padding:'8px 10px',fontSize:13,textAlign:'center'}} />
-                </div>
-              ))}
-            </div>
-            <div style={{ marginBottom:14 }}>
-              <label style={S.label}>URL do Google Apps Script (escrita na planilha)</label>
-              <input value={rsScriptUrl} onChange={e=>setRsScriptUrl(e.target.value)} style={S.input}
-                placeholder="https://script.google.com/macros/s/..." />
-              <div style={{ fontSize:11, color:'#999', marginTop:4 }}>
-                Opcional · permite escrever reservas diretamente na planilha. Deixe vazio para usar apenas Firebase.
-              </div>
-            </div>
-            <button onClick={salvarReservas} style={{ ...S.btn(rsSavedMsg?C.success:C.gold) }}>
-              {rsSavedMsg||'💾 Salvar configuração de Reservas'}
-            </button>
-          </div>
-
           <div style={{ ...S.card, background: C.bgCard2, border: `1px solid ${C.border}` }}>
             <div style={{ fontSize: 12, color: C.secondary, fontWeight: 700 }}>ℹ️ {config.nome_estabelecimento} v2.0</div>
             <div style={{ fontSize: 12, color: C.textMuted }}>Sistema operacional de extras · Firebase Firestore</div>
