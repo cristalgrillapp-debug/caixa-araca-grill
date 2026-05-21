@@ -144,6 +144,7 @@ export default function AllanaChat() {
   const [carregando, setCarregando] = useState(false)
   const [pulso, setPulso] = useState(false)
   const [iaBloqueada, setIaBloqueada] = useState(false)
+  const [kbOffset, setKbOffset] = useState(0)
 
   const assinaturaUsada = useRef(false)
   const handoffsSemClique = useRef(0)
@@ -171,6 +172,25 @@ export default function AllanaChat() {
     if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight
   }, [mensagens, carregando])
 
+  // Reposiciona painel quando teclado virtual sobe/desce (iOS + Android)
+  useEffect(() => {
+    if (!aberto) return
+    const vv = window.visualViewport
+    if (!vv) return
+    const atualizar = () => {
+      const kb = Math.max(0, window.innerHeight - vv.height - vv.offsetTop)
+      setKbOffset(kb)
+    }
+    vv.addEventListener('resize', atualizar)
+    vv.addEventListener('scroll', atualizar)
+    atualizar()
+    return () => {
+      vv.removeEventListener('resize', atualizar)
+      vv.removeEventListener('scroll', atualizar)
+      setKbOffset(0)
+    }
+  }, [aberto])
+
   // Foco no input ao abrir + saudação inicial (1ª msg da sessão, com assinatura)
   const abrir = useCallback(() => {
     interagiu.current = true
@@ -184,7 +204,6 @@ export default function AllanaChat() {
         showMenuButton: false, handoff: false, handoffReason: '',
       }]
     })
-    setTimeout(() => inputRef.current?.focus(), 320)
   }, [])
 
   const adicionarBot = useCallback((data) => {
@@ -297,9 +316,9 @@ export default function AllanaChat() {
   return (
     <div style={{
       position: 'fixed', zIndex: 180,
-      right: 16, bottom: 'calc(16px + env(safe-area-inset-bottom, 0px))',
+      right: 16, bottom: `calc(16px + env(safe-area-inset-bottom, 0px) + ${kbOffset}px)`,
       width: 'min(380px, calc(100vw - 24px))',
-      height: 'min(580px, calc(100vh - 90px))',
+      height: `min(580px, calc(100vh - 90px - ${kbOffset}px))`,
       display: 'flex', flexDirection: 'column',
       background: A.panel, border: `1px solid ${A.border}`, borderRadius: 20,
       overflow: 'hidden', boxShadow: '0 16px 50px rgba(0,0,0,0.6)',
