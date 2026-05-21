@@ -42,12 +42,24 @@ const FERIADOS = new Set([
 
 // ── ESPAÇOS ──────────────────────────────────────────────────────────────
 const ESPACOS = [
-  { id:'kids',         icon:'🧸', titulo:'ESPAÇO KIDS',               sub:'Playground 2 Andares / Pula-pula', badge:'PERFEITO PARA FAMÍLIAS' },
-  { id:'palco',        icon:'🎵', titulo:'PRÓXIMO AO PALCO',           sub:'Som Vibrante, Experiência Vivida' },
-  { id:'churrasqueira',icon:'🔥', titulo:'PRÓX. CHURRASQUEIRA + TV',   sub:'Sabor e entretenimento' },
-  { id:'meio',         icon:'🌿', titulo:'MEIO DO SALÃO',              sub:'[Teto Retrátil]', desc:'AMBIENTE AREJADO (Ar Livre)' },
-  { id:'banheiros',    icon:'🚶', titulo:'PRÓX. AOS BANHEIROS',        sub:'Fundo do Salão' },
-  { id:'qualquer',     icon:'✨', titulo:'SEM PREFERÊNCIAS',           sub:'Em qualquer lugar do salão', full:true },
+  { id:'kids',          icon:'🧸', titulo:'ESPAÇO KIDS',             sub:'Playground 2 Andares · Pula-pula', badge:'PERFEITO P/ FAMÍLIAS',
+    gradient:'linear-gradient(145deg, #1a0f2e 0%, #2d1550 55%, #180c26 100%)',
+    iconBig:'🧸', accent:'#c97ed8' },
+  { id:'palco',         icon:'🎵', titulo:'PRÓXIMO AO PALCO',        sub:'Som Vibrante · Experiência Vivida',
+    gradient:'linear-gradient(145deg, #0a0b22 0%, #15184a 55%, #080a1e 100%)',
+    iconBig:'🎶', accent:'#7b84e8' },
+  { id:'churrasqueira', icon:'🔥', titulo:'CHURRASQUEIRA + TV',      sub:'Sabor e entretenimento',
+    gradient:'linear-gradient(145deg, #1e0500 0%, #3d0e00 55%, #220600 100%)',
+    iconBig:'🔥', accent:'#e07840' },
+  { id:'meio',          icon:'🌿', titulo:'MEIO DO SALÃO',           sub:'Teto Retrátil · Ar Livre',
+    gradient:'linear-gradient(145deg, #051a0c 0%, #0c2d18 55%, #051a0c 100%)',
+    iconBig:'🌿', accent:'#5db87a' },
+  { id:'banheiros',     icon:'🚶', titulo:'FUNDO DO SALÃO',          sub:'Próx. aos banheiros',
+    gradient:'linear-gradient(145deg, #0c0c14 0%, #181826 55%, #0c0c14 100%)',
+    iconBig:'🏛️', accent:'#8aaccc' },
+  { id:'qualquer',      icon:'✨', titulo:'SEM PREFERÊNCIAS',        sub:'Em qualquer lugar do salão',
+    gradient:'linear-gradient(145deg, #18120400 0%, #2c1e04 55%, #18120400 100%)',
+    iconBig:'✨', accent:'#c9a96e' },
 ]
 
 // ── UTILS ─────────────────────────────────────────────────────────────────
@@ -252,62 +264,79 @@ function Calendario({ selectedDate, onSelect, onClose }) {
 // ── CARD DE ESPAÇO ────────────────────────────────────────────────────────
 function EspacoCard({ espaco, selecionado, onSelect }) {
   const [pressed, setPressed] = useState(false)
+  const [hovered, setHovered] = useState(false)
   return (
     <button
       className="espaco-card"
       onClick={() => { setPressed(true); setTimeout(()=>setPressed(false),200); onSelect(espaco.id) }}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
       style={{
-        border: selecionado ? `1.5px solid ${C.gold}` : `1px solid ${C.border}`,
-        borderRadius:18,
-        background: selecionado
-          ? `linear-gradient(135deg, ${C.bgCard4} 0%, ${C.bgCard3} 100%)`
-          : C.bgCard2,
-        padding:'18px 14px',
+        border: selecionado ? `1.5px solid ${C.gold}` : `1px solid ${hovered ? espaco.accent+'55' : C.border}`,
+        borderRadius:16,
+        background: espaco.gradient,
+        padding:0,
         cursor:'pointer', textAlign:'left', position:'relative', overflow:'hidden',
-        boxShadow: selecionado ? `0 0 24px ${C.gold15}, 0 4px 16px rgba(0,0,0,0.4)` : '0 2px 8px rgba(0,0,0,0.3)',
-        transform: pressed ? 'scale(0.97)' : 'scale(1)',
-        transition:'all 0.2s cubic-bezier(0.34,1.56,0.64,1)',
-        gridColumn: espaco.full ? '1/-1' : 'auto',
+        height:155,
+        boxShadow: selecionado
+          ? `0 0 0 2px ${C.gold}, 0 0 28px rgba(201,169,110,0.22), 0 8px 24px rgba(0,0,0,0.55)`
+          : hovered
+            ? `0 6px 20px rgba(0,0,0,0.5), 0 0 0 1px ${espaco.accent}44`
+            : '0 2px 10px rgba(0,0,0,0.4)',
+        transform: pressed ? 'scale(0.96)' : hovered ? 'translateY(-3px)' : 'scale(1)',
+        transition:'all 0.22s cubic-bezier(0.34,1.56,0.64,1)',
       }}>
-      {/* Glow de fundo quando selecionado */}
+
+      {/* Emoji decorativo de fundo */}
+      <div style={{ position:'absolute', top:'50%', left:'50%',
+        transform:'translate(-50%,-62%)',
+        fontSize:74, opacity: selecionado ? 0.32 : hovered ? 0.22 : 0.14,
+        filter:'blur(1px)', pointerEvents:'none', userSelect:'none',
+        transition:'opacity 0.3s', lineHeight:1 }}>
+        {espaco.iconBig}
+      </div>
+
+      {/* Gradiente escurecendo base */}
+      <div style={{ position:'absolute', bottom:0, left:0, right:0, height:'68%',
+        background:'linear-gradient(to top, rgba(0,0,0,0.88) 0%, transparent 100%)',
+        pointerEvents:'none' }} />
+
+      {/* Faixa de acento no topo quando selecionado */}
       {selecionado && (
-        <div style={{ position:'absolute', top:-20, right:-20, width:80, height:80,
-          borderRadius:'50%', background:C.gold8, filter:'blur(20px)', pointerEvents:'none' }} />
+        <div style={{ position:'absolute', top:0, left:0, right:0, height:2,
+          background:`linear-gradient(to right, transparent, ${espaco.accent}, transparent)` }} />
       )}
 
-      {/* Ícone */}
-      <div style={{ fontSize:26, marginBottom:10,
-        filter: selecionado ? 'drop-shadow(0 0 8px rgba(201,169,110,0.5))' : 'none',
-        transition:'filter 0.3s' }}>
-        {espaco.icon}
-      </div>
-
-      <div style={{ fontSize:11, fontWeight:800, color: selecionado?C.gold:C.textMuted,
-        letterSpacing:'0.08em', textTransform:'uppercase', marginBottom:4,
-        transition:'color 0.2s' }}>
-        {espaco.titulo}
-      </div>
-      <div style={{ fontSize:11, color:C.textDim, lineHeight:1.4 }}>{espaco.sub}</div>
-      {espaco.desc && (
-        <div style={{ fontSize:10, color:C.goldD, fontWeight:700, marginTop:4, letterSpacing:'0.05em' }}>
-          {espaco.desc}
+      {/* Conteúdo no rodapé */}
+      <div style={{ position:'absolute', bottom:0, left:0, right:0, padding:'10px 12px 12px' }}>
+        <div style={{ fontSize:10, fontWeight:800,
+          color: selecionado ? C.gold : C.text,
+          letterSpacing:'0.06em', textTransform:'uppercase',
+          marginBottom:2, transition:'color 0.2s', lineHeight:1.2 }}>
+          {espaco.titulo}
         </div>
-      )}
-      {espaco.badge && (
-        <div style={{ marginTop:8, display:'inline-block', background:C.gold8,
-          border:`1px solid ${C.gold25}`, borderRadius:6, padding:'3px 8px',
-          fontSize:9, fontWeight:800, color:C.gold, letterSpacing:'0.08em' }}>
-          {espaco.badge}
+        <div style={{ fontSize:9.5, color: selecionado ? espaco.accent : C.textDim,
+          lineHeight:1.35, transition:'color 0.2s' }}>
+          {espaco.sub}
         </div>
-      )}
+        {espaco.badge && (
+          <div style={{ marginTop:5, display:'inline-block',
+            background:'rgba(201,169,110,0.14)',
+            border:`1px solid rgba(201,169,110,0.28)`,
+            borderRadius:4, padding:'2px 6px',
+            fontSize:7, fontWeight:800, color:C.gold, letterSpacing:'0.06em' }}>
+            {espaco.badge}
+          </div>
+        )}
+      </div>
 
       {/* Checkmark selecionado */}
       {selecionado && (
-        <div style={{ position:'absolute', top:12, right:12,
+        <div style={{ position:'absolute', top:8, right:8,
           width:22, height:22, borderRadius:'50%',
           background:`linear-gradient(135deg,${C.goldD},${C.gold})`,
           display:'flex', alignItems:'center', justifyContent:'center',
-          fontSize:12, color:'#0a0806', fontWeight:800,
+          fontSize:11, color:'#0a0806', fontWeight:900,
           boxShadow:`0 0 10px ${C.gold40}`, animation:'goldGlow 2s infinite' }}>
           ✓
         </div>
@@ -642,32 +671,43 @@ ${obs.trim()||'Nenhuma'}`
       maxWidth:480, margin:'0 auto', paddingBottom:60 }}>
 
       {/* ── HEADER ─────────────────────────────────────────────── */}
-      <div style={{ position:'relative', overflow:'hidden', padding:'48px 28px 40px' }}>
-        {/* Glow de fundo */}
-        <div style={{ position:'absolute', top:-40, left:'50%', transform:'translateX(-50%)',
-          width:300, height:300, borderRadius:'50%',
-          background:'radial-gradient(circle, rgba(201,169,110,0.08) 0%, transparent 70%)',
+      <div style={{ position:'relative', overflow:'hidden', padding:'52px 28px 44px' }}>
+        {/* Glow radial de fundo */}
+        <div style={{ position:'absolute', top:-60, left:'50%', transform:'translateX(-50%)',
+          width:380, height:380, borderRadius:'50%',
+          background:'radial-gradient(circle, rgba(201,169,110,0.11) 0%, transparent 68%)',
           pointerEvents:'none' }} />
-
-        {/* Linha decorativa topo */}
-        <div style={{ width:40, height:2, background:`linear-gradient(to right,transparent,${C.gold},transparent)`,
-          margin:'0 auto 28px' }} />
+        {/* Linhas decorativas laterais */}
+        <div style={{ position:'absolute', top:0, left:0, right:0, height:1,
+          background:`linear-gradient(to right, transparent, ${C.gold25}, transparent)` }} />
 
         <div style={{ textAlign:'center', position:'relative' }}>
-          <div style={{ fontSize:9, fontWeight:800, color:C.goldD, letterSpacing:'0.22em',
-            textTransform:'uppercase', marginBottom:14 }}>ARACÁ GRILL</div>
-          <h1 style={{ fontSize:30, fontWeight:900, color:C.gold, margin:'0 0 10px',
-            letterSpacing:'-0.04em', lineHeight:1.1 }}>
+          {/* Logo */}
+          <div style={{ display:'flex', justifyContent:'center', marginBottom:22 }}>
+            <div style={{
+              width:106, height:106, borderRadius:'50%', overflow:'hidden',
+              border:`2px solid ${C.gold}`,
+              boxShadow:`0 0 0 4px ${C.gold8}, 0 0 40px rgba(201,169,110,0.28), 0 0 80px rgba(201,169,110,0.10)`,
+              animation:'goldGlow 3.5s ease-in-out infinite',
+              flexShrink:0,
+            }}>
+              <img src="/logo-araca.png" alt="Araçá Grill"
+                style={{ width:'100%', height:'100%', objectFit:'cover', display:'block' }} />
+            </div>
+          </div>
+
+          <h1 style={{ fontSize:28, fontWeight:900, color:C.gold, margin:'0 0 8px',
+            letterSpacing:'-0.03em', lineHeight:1.1 }}>
             Faça sua reserva
           </h1>
-          <p style={{ fontSize:14, color:C.textMuted, margin:0, fontStyle:'italic',
-            letterSpacing:'0.02em' }}>
+          <p style={{ fontSize:13, color:C.textMuted, margin:0, fontStyle:'italic',
+            letterSpacing:'0.03em' }}>
             Reserve seu momento conosco
           </p>
 
           {/* Ornamento */}
           <div style={{ display:'flex', alignItems:'center', justifyContent:'center',
-            gap:10, marginTop:20 }}>
+            gap:10, marginTop:22 }}>
             <div style={{ flex:1, height:1, background:`linear-gradient(to right,transparent,${C.gold25})` }} />
             <span style={{ color:C.gold, fontSize:14 }}>✦</span>
             <div style={{ flex:1, height:1, background:`linear-gradient(to left,transparent,${C.gold25})` }} />
