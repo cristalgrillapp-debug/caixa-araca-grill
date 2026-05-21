@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo, useRef } from 'react'
 import { db } from './firebase'
 import { collection, addDoc } from 'firebase/firestore'
+import AllanaChat from './AllanaChat.jsx'
 
 // Número fixo para encaminhamento das reservas
 const WHATSAPP_RESERVAS = '5518991850160'
@@ -1019,6 +1020,9 @@ ${obs.trim()||'Nenhuma'}`
           loading={loading}
         />
       )}
+
+      {/* ── CHATBOT ALLANA ───────────────────────────────────── */}
+      <AllanaChat />
     </div>
   )
 }

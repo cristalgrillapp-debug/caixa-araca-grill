@@ -19,7 +19,7 @@
       "destination": "/.well-known/$1"
     },
     {
-      "source": "/(.*)",
+      "source": "/((?!api/).*)",
       "destination": "/index.html"
     }
   ]
