@@ -641,7 +641,10 @@ export default function PaginaReservas() {
 
     const espaco = ESPACOS.find(e=>e.id===local)?.titulo || local
     const periodoLabel = periodo==='almoco' ? 'Almoço' : 'Jantar'
-    const msg = `Olá, gostaria de informar meu interesse em fazer uma reserva com vocês.
+    const msg = `#PRE-RESERVA-ARACA
+
+Olá 😊
+Acabei de realizar minha pré-reserva pelo site do Araçá Grill e gostaria de continuar meu atendimento por aqui.
 
 Nome:
 ${nome.trim()}
