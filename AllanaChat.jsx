@@ -454,7 +454,7 @@ export default function AllanaChat() {
           right: 16,
           bottom: 'calc(20px + env(safe-area-inset-bottom, 0px))',
           zIndex: 150,
-          width: 60, height: 60,
+          width: 76, height: 76,
           padding: 0,
           display: 'flex', alignItems: 'center', justifyContent: 'center',
           background: `radial-gradient(120% 120% at 30% 20%, ${A.surfaceHi} 0%, ${A.panel} 60%, ${A.bg} 100%)`,
@@ -471,15 +471,15 @@ export default function AllanaChat() {
         }}
       >
         <span className="all-fab-ring" />
-        <AllanaAvatar size={48} ring online />
+        <AllanaAvatar size={62} ring online />
         <span aria-hidden="true" style={{
           position: 'absolute', top: -2, right: -2,
-          width: 18, height: 18, borderRadius: '50%',
+          width: 22, height: 22, borderRadius: '50%',
           background: A.goldGrad, color: '#1a1410',
           display: 'flex', alignItems: 'center', justifyContent: 'center',
           boxShadow: `0 2px 8px ${A.goldGlow}, 0 0 0 2px ${A.panel}`,
         }}>
-          <IconSparkle size={10} />
+          <IconSparkle size={12} />
         </span>
       </button>
     )
