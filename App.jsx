@@ -377,6 +377,9 @@ function AppPrincipal({ usuario, onLogout }) {
   const [config, setConfig] = useState(DEFAULT_CONFIG)
   const [turnoAtivo, setTurnoAtivo] = useState(null)   // { id, data_op, aberto_em, aberto_por }
   const [carregandoTurno, setCarregandoTurno] = useState(true)
+  const [retroativosAbertos, setRetroativosAbertos] = useState([]) // turnos do tipo 'retroativo'
+  const [historicoTurnos, setHistoricoTurnos] = useState([])       // últimos 60 turnos
+  const [modoRetroativoId, setModoRetroativoId] = useState(null)   // id do turno retroativo "em foco"
   const migrandoCats = useRef(false)
 
   const [reservas, setReservas] = useState([])
@@ -450,7 +453,14 @@ function AppPrincipal({ usuario, onLogout }) {
   }, [temReservasNaoVistas])
 
   // today vem do turno ativo — se não tiver, usa data real
-  const today = turnoAtivo?.data_op || toDateStr(new Date())
+  // Quando o modo retroativo está ativo, todo o app passa a operar na data daquele
+  // turno retroativo (today, lançamentos, filtros) — sem mexer no turno normal.
+  const turnoRetroativoFoco = useMemo(
+    () => retroativosAbertos.find(t => t.id === modoRetroativoId) || null,
+    [retroativosAbertos, modoRetroativoId]
+  )
+  const turnoEfetivo = turnoRetroativoFoco || turnoAtivo
+  const today = turnoEfetivo?.data_op || toDateStr(new Date())
 
   const updateConfig = async (changes) => {
     const novo = { ...config, ...changes }
@@ -525,17 +535,23 @@ function AppPrincipal({ usuario, onLogout }) {
     ]
 
     const unsubs = [
-      // Turno ativo — escuta em tempo real
+      // Turnos — escuta TODOS os abertos. O "ativo" é o tipo 'normal' (ou sem tipo,
+      // por compatibilidade com docs antigos). Retroativos abertos vivem em paralelo.
       onSnapshot(
-        query(collection(db, 'turnos'), where('status', '==', 'aberto'), limit(1)),
+        query(collection(db, 'turnos'), where('status', '==', 'aberto')),
         s => {
-          if (!s.empty) {
-            setTurnoAtivo({ id: s.docs[0].id, ...s.docs[0].data() })
-          } else {
-            setTurnoAtivo(null)
-          }
+          const abertos = s.docs.map(d => ({ id: d.id, ...d.data() }))
+          const normal = abertos.find(t => !t.tipo || t.tipo === 'normal') || null
+          const retros = abertos.filter(t => t.tipo === 'retroativo')
+          setTurnoAtivo(normal)
+          setRetroativosAbertos(retros)
           setCarregandoTurno(false)
         }
+      ),
+      // Histórico de turnos (para o painel de retroativos)
+      onSnapshot(
+        query(collection(db, 'turnos'), orderBy('aberto_em', 'desc'), limit(60)),
+        s => setHistoricoTurnos(s.docs.map(d => ({ id: d.id, ...d.data() })))
       ),
       onSnapshot(qExtras, s => setExtras(s.docs.map(d => ({ id: d.id, ...d.data() })))),
       onSnapshot(qVales, s => setVales(s.docs.map(d => ({ id: d.id, ...d.data() })))),
@@ -669,33 +685,131 @@ function AppPrincipal({ usuario, onLogout }) {
       aberto_em: new Date().toISOString(),
       aberto_por: usuario.nome,
       status:    'aberto',
+      tipo:      'normal',
     })
     // turnoAtivo será atualizado pelo listener
   }
 
+  // ─── Turnos retroativos ────────────────────────────────────────────────────
+  // Abre um turno NOVO em data específica, sem mexer no turno normal do dia.
+  // Marca como tipo 'retroativo' — o listener separa em retroativosAbertos.
+  const abrirTurnoRetroativo = async ({ data, motivo }) => {
+    if (!data) throw new Error('Data obrigatória')
+    if (!motivo?.trim()) throw new Error('Informe o motivo')
+    // Evita duplicar: se já existe turno (aberto ou fechado) nesse dia, alerta.
+    const jaExiste = historicoTurnos.find(t => t.data_op === data)
+    if (jaExiste) {
+      const acao = jaExiste.status === 'aberto' ? 'já está aberto' : 'já existe (encerrado)'
+      throw new Error(`Turno de ${data.split('-').reverse().join('/')} ${acao}. Use "Reabrir" se quiser editá-lo.`)
+    }
+    const agora = new Date().toISOString()
+    const ref = await addDoc(collection(db, 'turnos'), {
+      data_op:     data,
+      aberto_em:   agora,
+      aberto_por:  usuario.nome,
+      status:      'aberto',
+      tipo:        'retroativo',
+      motivo_abertura: motivo.trim(),
+    })
+    await registrarLog('turno_retroativo_aberto', {
+      turno_id: ref.id, data_op: data, motivo: motivo.trim(),
+    })
+    return ref.id
+  }
+
+  // Reabre um turno previamente encerrado para novos lançamentos / correções.
+  // Mantém o registro do encerramento anterior em historico_aberturas.
+  const reabrirTurno = async ({ turnoId, motivo }) => {
+    if (!turnoId) throw new Error('Turno inválido')
+    if (!motivo?.trim()) throw new Error('Informe o motivo da reabertura')
+    const turnoRef = doc(db, 'turnos', turnoId)
+    const snap = await getDoc(turnoRef)
+    if (!snap.exists()) throw new Error('Turno não encontrado')
+    const t = snap.data()
+    if (t.status !== 'encerrado') throw new Error('Só é possível reabrir turnos encerrados')
+    const agora = new Date().toISOString()
+    const historico = Array.isArray(t.historico_aberturas) ? t.historico_aberturas : []
+    historico.push({
+      encerrado_em: t.encerrado_em || null,
+      encerrado_por: t.encerrado_por || null,
+      total_extras: t.total_extras || 0,
+      qtd_extras: t.qtd_extras || 0,
+      reaberto_em: agora,
+      reaberto_por: usuario.nome,
+      motivo: motivo.trim(),
+    })
+    await updateDoc(turnoRef, {
+      status: 'aberto',
+      tipo: 'retroativo',  // reaberto vira retroativo (não disputa com o normal)
+      reaberto_em: agora,
+      reaberto_por: usuario.nome,
+      motivo_reabertura: motivo.trim(),
+      historico_aberturas: historico,
+    })
+    await registrarLog('turno_reaberto', {
+      turno_id: turnoId, data_op: t.data_op, motivo: motivo.trim(),
+    })
+  }
+
+  // Encerra um turno retroativo (recalculando os totais com base nos extras
+  // que tenham data_op igual à data do turno). Sai do modo retroativo no fim.
+  const encerrarTurnoRetroativo = async (turnoId) => {
+    if (!turnoId) return
+    const turnoRef = doc(db, 'turnos', turnoId)
+    const snap = await getDoc(turnoRef)
+    if (!snap.exists()) return
+    const t = snap.data()
+    const dataAlvo = t.data_op
+    const extrasDoDia = extras.filter(e => e.data_op === dataAlvo)
+    const pagos = extrasDoDia.filter(e => e.pago)
+    const agora = new Date().toISOString()
+    const batch = writeBatch(db)
+    pagos.forEach(e => {
+      if (!e.encerrado) batch.update(doc(db, 'extras', e.id), {
+        encerrado: true, data_encerramento: agora,
+      })
+    })
+    batch.update(turnoRef, {
+      status: 'encerrado',
+      encerrado_em: agora,
+      encerrado_por: usuario.nome,
+      total_extras: pagos.reduce((a, e) => a + (e.valor_final || 0), 0),
+      qtd_extras: pagos.length,
+    })
+    await batch.commit()
+    await registrarLog('turno_retroativo_encerrado', {
+      turno_id: turnoId, data_op: dataAlvo, pagos: pagos.length,
+    })
+    if (modoRetroativoId === turnoId) setModoRetroativoId(null)
+  }
+
+  const entrarModoRetroativo = (turnoId) => setModoRetroativoId(turnoId)
+  const sairModoRetroativo  = () => setModoRetroativoId(null)
+
   const encerrarTurno = async () => {
     if (!turnoAtivo) return
-    const pagos     = extras.filter(e => e.data_op === today && e.pago)
-    const pendentes = extras.filter(e => e.data_op === today && !e.pago)
+    // Sempre fecha o turno NORMAL — usa a data dele, não o `today` (que pode
+    // estar apontando para um retroativo em foco).
+    const dataAlvo  = turnoAtivo.data_op
+    const pagos     = extras.filter(e => e.data_op === dataAlvo && e.pago)
+    const pendentes = extras.filter(e => e.data_op === dataAlvo && !e.pago)
 
     if (pendentes.length > 0) {
       const msg = `Existem ${pendentes.length} pagamento(s) pendente(s):\n\n${pendentes.map(e => `• ${e.nome}: ${fmt(e.valor_final)}`).join('\n')}\n\nDeseja encerrar mesmo assim?`
       if (!confirm(msg)) return
     }
 
-    const confirmacao = prompt(`Digite "ENCERRAR" para fechar o turno de ${dayLabel(today)}.`)
+    const confirmacao = prompt(`Digite "ENCERRAR" para fechar o turno de ${dayLabel(dataAlvo)}.`)
     if (confirmacao !== 'ENCERRAR') return
 
     try {
       const agora = new Date().toISOString()
       const batch = writeBatch(db)
 
-      // Marca extras pagos como encerrados
       pagos.forEach(e => batch.update(doc(db, 'extras', e.id), {
         encerrado: true, data_encerramento: agora,
       }))
 
-      // Fecha o turno
       batch.update(doc(db, 'turnos', turnoAtivo.id), {
         status:       'encerrado',
         encerrado_em: agora,
@@ -709,11 +823,11 @@ function AppPrincipal({ usuario, onLogout }) {
       await addDoc(collection(db, 'logs'), {
         usuario_id: usuario.id, usuario_nome: usuario.nome,
         acao: 'encerramento_turno',
-        detalhes: { data_op: today, pagos_encerrados: pagos.length, pendentes: pendentes.length },
-        data: agora, data_op: today,
+        detalhes: { data_op: dataAlvo, pagos_encerrados: pagos.length, pendentes: pendentes.length },
+        data: agora, data_op: dataAlvo,
       })
 
-      alert(`✅ Turno de ${dayLabel(today)} encerrado!\n${pagos.length} pagamento(s) registrado(s).`)
+      alert(`✅ Turno de ${dayLabel(dataAlvo)} encerrado!\n${pagos.length} pagamento(s) registrado(s).`)
     } catch (err) {
       alert('Erro ao encerrar turno. Tente novamente.')
       console.error(err)
@@ -734,7 +848,7 @@ function AppPrincipal({ usuario, onLogout }) {
     } catch (e) { console.warn('Log falhou:', e) }
   }
 
-  const store = { extras, vales, despesas, categorias, pessoas, setores, config, turnoAtivo, updateConfig, addExtra, updateExtra, removeExtra, addPessoa, updatePessoa, removePessoa, addSetor, updateSetor, removeSetor, addVale, updateVale, removeVale, addDespesa, updateDespesa, removeDespesa, addCategoria, updateCategoria, removeCategoria, usuario, onLogout, registrarLog, reservas, reservasStatus, confirmarVisualizacaoReserva, confirmarReserva, excluirReserva }
+  const store = { extras, vales, despesas, categorias, pessoas, setores, config, turnoAtivo, updateConfig, addExtra, updateExtra, removeExtra, addPessoa, updatePessoa, removePessoa, addSetor, updateSetor, removeSetor, addVale, updateVale, removeVale, addDespesa, updateDespesa, removeDespesa, addCategoria, updateCategoria, removeCategoria, usuario, onLogout, registrarLog, reservas, reservasStatus, confirmarVisualizacaoReserva, confirmarReserva, excluirReserva, retroativosAbertos, historicoTurnos, turnoRetroativoFoco, turnoEfetivo, abrirTurnoRetroativo, reabrirTurno, encerrarTurnoRetroativo, entrarModoRetroativo, sairModoRetroativo }
 
   const tabs = [
     { id: 'extras',    icon: '👤', label: 'Extras'      },
@@ -758,7 +872,7 @@ function AppPrincipal({ usuario, onLogout }) {
             {turnoAtivo ? (
               <>
                 <div style={{ fontSize: 10, color: '#22c55e', fontWeight: 700 }}>🟢 TURNO ABERTO</div>
-                <div style={{ fontSize: 13, color: '#ffffff', fontWeight: 700 }}>{dayLabel(today)}</div>
+                <div style={{ fontSize: 13, color: '#ffffff', fontWeight: 700 }}>{dayLabel(turnoAtivo.data_op)}</div>
                 <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.4)', marginTop: 2 }}>👤 {usuario.nome}</div>
                 <button onClick={encerrarTurno}
                   style={{ background: '#a8322888', border: '1px solid #a8322899', borderRadius: 6, color: '#fca5a5', fontSize: 10, padding: '3px 8px', cursor: 'pointer', marginTop: 3, fontWeight: 700 }}>
@@ -776,6 +890,59 @@ function AppPrincipal({ usuario, onLogout }) {
         </div>
       </div>
 
+      {/* Banner do modo retroativo — fica visível em toda tela */}
+      {turnoRetroativoFoco && (
+        <div style={{
+          background: 'linear-gradient(135deg,#7c2d12,#9a3412)',
+          borderBottom: '1px solid #c2410c',
+          padding: '10px 14px',
+          display: 'flex', alignItems: 'center', gap: 10,
+          color: '#ffedd5',
+        }}>
+          <span style={{ fontSize: 18 }}>⚠️</span>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: '0.05em',
+              textTransform: 'uppercase', color: '#fed7aa' }}>
+              Modo retroativo ativo
+            </div>
+            <div style={{ fontSize: 13, fontWeight: 700, color: '#fff' }}>
+              Lançamentos vão para {dayLabel(turnoRetroativoFoco.data_op)} ·
+              {' '}{turnoRetroativoFoco.data_op.split('-').reverse().join('/')}
+            </div>
+          </div>
+          <button onClick={sairModoRetroativo}
+            style={{
+              background: '#fff', color: '#9a3412', border: 'none',
+              borderRadius: 8, padding: '6px 12px', fontSize: 11, fontWeight: 800,
+              cursor: 'pointer', fontFamily: 'inherit',
+            }}>
+            Sair do modo
+          </button>
+        </div>
+      )}
+
+      {/* Aviso quando há retroativo aberto mas o operador não está nele */}
+      {!turnoRetroativoFoco && retroativosAbertos.length > 0 && (
+        <div style={{
+          background: '#1a0f00', borderBottom: '1px solid #92400e44',
+          padding: '8px 14px', display: 'flex', alignItems: 'center', gap: 8,
+          fontSize: 11, color: '#fbbf24',
+        }}>
+          <span>📌</span>
+          <span style={{ flex: 1 }}>
+            {retroativosAbertos.length} turno{retroativosAbertos.length>1?'s':''} retroativo
+            {retroativosAbertos.length>1?'s':''} aberto{retroativosAbertos.length>1?'s':''}
+            {' '}({retroativosAbertos.map(t => t.data_op.split('-').reverse().slice(0,2).join('/')).join(', ')})
+          </span>
+          <button onClick={() => setTab('config')}
+            style={{ background: 'transparent', border: '1px solid #fbbf2455',
+              borderRadius: 6, color: '#fbbf24', fontSize: 10, padding: '3px 8px',
+              cursor: 'pointer', fontFamily: 'inherit', fontWeight: 700 }}>
+            Gerenciar
+          </button>
+        </div>
+      )}
+
       {/* Banner de alerta de reservas do dia */}
       {(()=>{
         const hoje = turnoAtivo?.data_op || toDateStr(new Date())
@@ -792,7 +959,7 @@ function AppPrincipal({ usuario, onLogout }) {
 
       <div style={S.content}>
         {/* Tela de abertura de turno — abas operacionais bloqueadas */}
-        {!carregandoTurno && !turnoAtivo && ABAS_BLOQUEADAS.includes(tab) && (
+        {!carregandoTurno && !turnoEfetivo && ABAS_BLOQUEADAS.includes(tab) && (
           <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minHeight: '60vh', gap: 16, padding: 24 }}>
             <div style={{ fontSize: 64 }}>⏸</div>
             <div style={{ fontSize: 20, fontWeight: 800, color: C.text, textAlign: 'center' }}>Nenhum turno aberto</div>
@@ -810,7 +977,7 @@ function AppPrincipal({ usuario, onLogout }) {
         )}
 
         {/* Conteúdo normal — turno aberto ou abas liberadas */}
-        {(turnoAtivo || !ABAS_BLOQUEADAS.includes(tab)) && !carregandoTurno && (
+        {(turnoEfetivo || !ABAS_BLOQUEADAS.includes(tab)) && !carregandoTurno && (
           <>
             {tab === 'extras'      && <TabExtras store={store} today={today} setModal={setModal} />}
             {tab === 'caixa'       && <TabCaixa store={store} today={today} setModal={setModal} />}
@@ -4071,7 +4238,7 @@ function TabConfig({ store, setModal }) {
     <div>
       {/* Sub-navegação */}
       <div style={{ display: 'flex', gap: 3, background: '#f0e8d8', padding: 4, borderRadius: 14, marginBottom: 14 }}>
-        {[['geral','🏠 Geral'],['pessoas','👥 Pessoas'],['operacional','📁 Operacional'],['dados','🗄️ Dados']].map(([id, label]) => (
+        {[['geral','🏠 Geral'],['pessoas','👥 Pessoas'],['operacional','📁 Operac'],['turnos','🕒 Turnos'],['dados','🗄️ Dados']].map(([id, label]) => (
           <button key={id} onClick={() => setSubConfig(id)}
             style={{ flex: 1, padding: '8px 2px', border: 'none', borderRadius: 10, background: subConfig === id ? '#fff' : 'transparent',
               cursor: 'pointer', fontSize: 10, fontWeight: subConfig === id ? 800 : 400,
@@ -4183,6 +4350,9 @@ function TabConfig({ store, setModal }) {
         </div>
       )}
 
+      {/* ─── TURNOS RETROATIVOS ─── */}
+      {subConfig === 'turnos' && <SecaoTurnos store={store} />}
+
       {/* ─── DADOS ─── */}
       {subConfig === 'dados' && (
         <div>
@@ -4203,6 +4373,207 @@ function TabConfig({ store, setModal }) {
           </div>
         </div>
       )}
+    </div>
+  )
+}
+
+
+// ─── SEÇÃO TURNOS RETROATIVOS ────────────────────────────────────────────────
+// Permite (a) abrir um turno NOVO em data passada/futura sem mexer no normal;
+// (b) reabrir um turno encerrado para novos lançamentos/correções;
+// (c) entrar no "modo retroativo" de um turno aberto — toda a UI passa a
+// operar naquela data até o usuário sair do modo.
+function SecaoTurnos({ store }) {
+  const {
+    historicoTurnos, retroativosAbertos, turnoRetroativoFoco, turnoAtivo,
+    abrirTurnoRetroativo, reabrirTurno, encerrarTurnoRetroativo,
+    entrarModoRetroativo, sairModoRetroativo, extras,
+  } = store
+
+  const [novaData, setNovaData] = useState(toDateStr(new Date()))
+  const [motivo, setMotivo] = useState('')
+  const [abrindo, setAbrindo] = useState(false)
+  const [reabrindoId, setReabrindoId] = useState(null)
+  const [motivoReabrir, setMotivoReabrir] = useState('')
+  const [erro, setErro] = useState('')
+
+  const tentarAbrir = async () => {
+    setErro('')
+    setAbrindo(true)
+    try {
+      const id = await abrirTurnoRetroativo({ data: novaData, motivo })
+      setMotivo('')
+      entrarModoRetroativo(id)
+    } catch (e) {
+      setErro(e.message || 'Falha ao abrir turno')
+    } finally { setAbrindo(false) }
+  }
+
+  const tentarReabrir = async (turnoId) => {
+    setErro('')
+    if (!motivoReabrir.trim()) { setErro('Informe o motivo'); return }
+    try {
+      await reabrirTurno({ turnoId, motivo: motivoReabrir })
+      setReabrindoId(null)
+      setMotivoReabrir('')
+      entrarModoRetroativo(turnoId)
+    } catch (e) {
+      setErro(e.message || 'Falha ao reabrir turno')
+    }
+  }
+
+  const totaisDoDia = (data) => {
+    const dia = extras.filter(e => e.data_op === data)
+    return { qtd: dia.length, total: dia.reduce((a, e) => a + (e.valor_final || 0), 0) }
+  }
+
+  const fmtData = (d) => d ? d.split('-').reverse().join('/') : '—'
+
+  return (
+    <div>
+      {/* Aviso/atalho do modo ativo */}
+      {turnoRetroativoFoco && (
+        <div style={{
+          ...S.card, padding: '14px 16px', marginBottom: 12,
+          background: 'linear-gradient(135deg,#7c2d12,#9a3412)', border: '1px solid #c2410c',
+        }}>
+          <div style={{ fontSize: 11, fontWeight: 800, color: '#fed7aa',
+            letterSpacing: '0.05em', textTransform: 'uppercase' }}>Modo retroativo ativo</div>
+          <div style={{ fontSize: 15, fontWeight: 800, color: '#fff', marginTop: 2 }}>
+            {dayLabel(turnoRetroativoFoco.data_op)} · {fmtData(turnoRetroativoFoco.data_op)}
+          </div>
+          <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+            <button onClick={sairModoRetroativo}
+              style={{ ...S.btn('#fff', true), color: '#9a3412', flex: 1 }}>
+              Sair do modo
+            </button>
+            <button
+              onClick={() => {
+                if (confirm(`Encerrar o turno retroativo de ${fmtData(turnoRetroativoFoco.data_op)}? Os totais serão recalculados.`)) {
+                  encerrarTurnoRetroativo(turnoRetroativoFoco.id)
+                }
+              }}
+              style={{ ...S.btn(C.danger), flex: 1 }}>
+              🔒 Encerrar turno retroativo
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Abrir novo turno em data específica */}
+      <div style={{ ...S.card, marginBottom: 12 }}>
+        <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 4 }}>
+          ➕ Abrir turno em outra data
+        </div>
+        <div style={{ fontSize: 12, color: C.textMuted, marginBottom: 12 }}>
+          Cria um turno extra (paralelo ao normal). Útil para lançar algo
+          esquecido de um dia anterior. O turno do dia continua aberto normalmente.
+        </div>
+        <label style={S.label}>Data do turno</label>
+        <input type="date" value={novaData} onChange={e => setNovaData(e.target.value)}
+          style={{ ...S.input, marginBottom: 10 }} />
+        <label style={S.label}>Motivo *</label>
+        <input value={motivo} onChange={e => setMotivo(e.target.value)}
+          style={{ ...S.input, marginBottom: 10 }}
+          placeholder="Ex: lançamento esquecido do dia anterior" />
+        {erro && (
+          <div style={{ fontSize: 12, color: C.danger, marginBottom: 10 }}>{erro}</div>
+        )}
+        <button onClick={tentarAbrir} disabled={abrindo || !motivo.trim()}
+          style={{ ...S.btn(C.primary), opacity: (abrindo || !motivo.trim()) ? 0.5 : 1 }}>
+          {abrindo ? 'Abrindo…' : 'Abrir turno retroativo'}
+        </button>
+      </div>
+
+      {/* Histórico de turnos */}
+      <div style={S.card}>
+        <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 12 }}>
+          🗓️ Histórico de turnos
+        </div>
+        {historicoTurnos.length === 0 && (
+          <div style={{ fontSize: 12, color: C.textMuted, textAlign: 'center', padding: 16 }}>
+            Nenhum turno registrado ainda.
+          </div>
+        )}
+        {historicoTurnos.map(t => {
+          const eAberto = t.status === 'aberto'
+          const eNormalAtivo = turnoAtivo && turnoAtivo.id === t.id
+          const eRetroFoco = turnoRetroativoFoco && turnoRetroativoFoco.id === t.id
+          const eRetroAberto = retroativosAbertos.some(r => r.id === t.id)
+          const tot = totaisDoDia(t.data_op)
+          return (
+            <div key={t.id} style={{
+              padding: '10px 12px', marginBottom: 8,
+              border: `1px solid ${eAberto ? '#fbbf2455' : C.border}`,
+              borderRadius: 10,
+              background: eRetroFoco ? '#7c2d1233' : eAberto ? '#1a0f00' : C.bgCard2,
+            }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
+                <div style={{ minWidth: 0, flex: 1 }}>
+                  <div style={{ fontSize: 14, fontWeight: 800, color: C.text }}>
+                    {fmtData(t.data_op)} · {dayLabel(t.data_op).split(',')[0]}
+                  </div>
+                  <div style={{ fontSize: 11, color: C.textMuted, marginTop: 2 }}>
+                    {eAberto ? '🟢 aberto' : '⚫ encerrado'}
+                    {t.tipo === 'retroativo' && ' · retroativo'}
+                    {' · '}{tot.qtd} extra{tot.qtd !== 1 ? 's' : ''} · {fmt(tot.total)}
+                  </div>
+                  {t.motivo_abertura && (
+                    <div style={{ fontSize: 10, color: C.textDim, marginTop: 2, fontStyle: 'italic' }}>
+                      abertura: {t.motivo_abertura}
+                    </div>
+                  )}
+                  {t.motivo_reabertura && (
+                    <div style={{ fontSize: 10, color: C.textDim, marginTop: 2, fontStyle: 'italic' }}>
+                      reabertura: {t.motivo_reabertura}
+                    </div>
+                  )}
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 4, alignItems: 'flex-end' }}>
+                  {eRetroAberto && !eRetroFoco && (
+                    <button onClick={() => entrarModoRetroativo(t.id)}
+                      style={{ ...S.btn('#9a3412'), padding: '6px 10px', fontSize: 11 }}>
+                      Entrar no modo
+                    </button>
+                  )}
+                  {eNormalAtivo && (
+                    <span style={{ fontSize: 10, fontWeight: 800, color: '#22c55e',
+                      padding: '4px 8px', border: '1px solid #22c55e44', borderRadius: 6 }}>
+                      TURNO DO DIA
+                    </span>
+                  )}
+                  {!eAberto && reabrindoId !== t.id && (
+                    <button onClick={() => { setReabrindoId(t.id); setMotivoReabrir('') }}
+                      style={{ ...S.btn(C.gold, true), padding: '6px 10px', fontSize: 11 }}>
+                      🔓 Reabrir
+                    </button>
+                  )}
+                </div>
+              </div>
+              {reabrindoId === t.id && (
+                <div style={{ marginTop: 10, padding: 10, border: `1px dashed ${C.gold}66`, borderRadius: 8 }}>
+                  <div style={{ fontSize: 11, color: C.textMuted, marginBottom: 6 }}>
+                    Reabrir permite novos lançamentos nessa data. O encerramento
+                    anterior fica registrado no histórico. Ao reencerrar, os
+                    totais são recalculados.
+                  </div>
+                  <input value={motivoReabrir} onChange={e => setMotivoReabrir(e.target.value)}
+                    style={{ ...S.input, marginBottom: 8 }}
+                    placeholder="Motivo da reabertura *" />
+                  <div style={{ display: 'flex', gap: 6 }}>
+                    <button onClick={() => { setReabrindoId(null); setMotivoReabrir(''); setErro('') }}
+                      style={{ ...S.btn(C.textDim, true), flex: 1, padding: '8px' }}>Cancelar</button>
+                    <button onClick={() => tentarReabrir(t.id)}
+                      style={{ ...S.btn(C.gold), flex: 2, padding: '8px' }}>
+                      Confirmar reabertura
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          )
+        })}
+      </div>
     </div>
   )
 }
