@@ -39,12 +39,54 @@ const toDateStr = (d) => {
   return `${y}-${m}-${day}`
 }
 
+function parseDataReserva(raw) {
+  if (!raw) return ''
+  const s = String(raw).trim()
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s
+  const m1 = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/)
+  if (m1) return `${m1[3]}-${m1[2].padStart(2,'0')}-${m1[1].padStart(2,'0')}`
+  const m2 = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2})$/)
+  if (m2) return `20${m2[3]}-${m2[2].padStart(2,'0')}-${m2[1].padStart(2,'0')}`
+  return ''
+}
+
+async function fetchReservasSheet(sheetId, apiKey, sheetName, headerRow, colData, colHorario, colNome, colPessoas, colObs) {
+  const range = encodeURIComponent(`${sheetName || 'Reservas'}!A:Z`)
+  const url = `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/${range}?key=${apiKey}`
+  const res = await fetch(url)
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}))
+    throw new Error(err?.error?.message || `Erro HTTP ${res.status}`)
+  }
+  const json = await res.json()
+  const rows = json.values || []
+  const skip = parseInt(headerRow) || 1
+  return rows.slice(skip).map((row, idx) => {
+    const data = parseDataReserva(row[colData] || '')
+    const horario = (row[colHorario] || '').trim()
+    const nome = (row[colNome] || '').trim()
+    const pessoas = (row[colPessoas] || '').trim()
+    const obs = (row[colObs] || '').trim()
+    const safeKey = `${data}_${nome.toLowerCase().replace(/[^a-z0-9]/g,'-')}_${horario.replace(':','')}`
+    return { data, horario, nome, pessoas, obs, key: safeKey, rowIdx: idx + skip + 1 }
+  }).filter(r => r.data && r.nome)
+}
+
 const DEFAULT_CONFIG = {
   nome_estabelecimento: 'ARACÁ GRILL',
   whatsapp_pix: '5518996530959',
   horario_virada_h: 2,
   horario_virada_m: 30,
   senha_mestre: '',
+  reservas_sheet_id: '',
+  reservas_api_key: '',
+  reservas_sheet_name: 'Reservas',
+  reservas_header_row: 1,
+  reservas_col_data: 0,
+  reservas_col_horario: 1,
+  reservas_col_nome: 2,
+  reservas_col_pessoas: 3,
+  reservas_col_obs: 4,
 }
 
 const todayOp = (cfg) => {
@@ -366,6 +408,7 @@ export default function App() {
 
 function AppPrincipal({ usuario, onLogout }) {
   const [tab, setTab] = useState('relatorios')
+  const [relCat, setRelCat] = useState('financeiro')
   const [extras, setExtras] = useState([])
   const [pessoas, setPessoas] = useState([])
   const [setores, setSetores] = useState([])
@@ -377,6 +420,12 @@ function AppPrincipal({ usuario, onLogout }) {
   const [turnoAtivo, setTurnoAtivo] = useState(null)   // { id, data_op, aberto_em, aberto_por }
   const [carregandoTurno, setCarregandoTurno] = useState(true)
   const migrandoCats = useRef(false)
+
+  const [reservas, setReservas] = useState([])
+  const [reservasStatus, setReservasStatus] = useState({})
+  const [reservasLoading, setReservasLoading] = useState(false)
+  const [reservasErro, setReservasErro] = useState(null)
+  const intervalReservas = useRef(null)
 
   // today vem do turno ativo — se não tiver, usa data real
   const today = turnoAtivo?.data_op || toDateStr(new Date())
@@ -492,6 +541,11 @@ function AppPrincipal({ usuario, onLogout }) {
           }
         }
       }),
+      onSnapshot(collection(db, 'reservas_confirmacoes'), s => {
+        const map = {}
+        s.docs.forEach(d => { map[d.data().chave] = d.data() })
+        setReservasStatus(map)
+      }),
       onSnapshot(collection(db, 'pessoas'), s => setPessoas(s.docs.map(d => ({ id: d.id, ...d.data() })))),
       onSnapshot(collection(db, 'setores'), s => {
         const data = s.docs.map(d => ({ id: d.id, ...d.data() }))
@@ -514,6 +568,42 @@ function AppPrincipal({ usuario, onLogout }) {
     return () => unsubs.forEach(u => u())
   }, [])
 
+  useEffect(() => {
+    clearInterval(intervalReservas.current)
+    if (!config.reservas_sheet_id || !config.reservas_api_key) {
+      setReservas([])
+      setReservasLoading(false)
+      setReservasErro(null)
+      return
+    }
+    const carregar = async () => {
+      setReservasLoading(true)
+      setReservasErro(null)
+      try {
+        const data = await fetchReservasSheet(
+          config.reservas_sheet_id, config.reservas_api_key,
+          config.reservas_sheet_name || 'Reservas',
+          config.reservas_header_row ?? 1,
+          config.reservas_col_data ?? 0,
+          config.reservas_col_horario ?? 1,
+          config.reservas_col_nome ?? 2,
+          config.reservas_col_pessoas ?? 3,
+          config.reservas_col_obs ?? 4
+        )
+        setReservas(data)
+      } catch (e) {
+        setReservasErro(e.message)
+      } finally {
+        setReservasLoading(false)
+      }
+    }
+    carregar()
+    intervalReservas.current = setInterval(carregar, 2 * 60 * 1000)
+    return () => clearInterval(intervalReservas.current)
+  }, [config.reservas_sheet_id, config.reservas_api_key, config.reservas_sheet_name,
+      config.reservas_header_row, config.reservas_col_data, config.reservas_col_horario,
+      config.reservas_col_nome, config.reservas_col_pessoas, config.reservas_col_obs])
+
   const addExtra = async (data) => await addDoc(collection(db, 'extras'), data)
   const updateExtra = async (id, data) => await updateDoc(doc(db, 'extras', id), data)
   const removeExtra = async (id) => await deleteDoc(doc(db, 'extras', id))
@@ -535,6 +625,27 @@ function AppPrincipal({ usuario, onLogout }) {
   const addCategoria = async (data) => await addDoc(collection(db, 'categorias_despesas'), data)
   const updateCategoria = async (id, data) => await updateDoc(doc(db, 'categorias_despesas', id), data)
   const removeCategoria = async (id) => await deleteDoc(doc(db, 'categorias_despesas', id))
+
+  const confirmarVisualizacaoReserva = async (key, nomeUsr) => {
+    if (!key) return
+    const docId = key.slice(0, 100)
+    await setDoc(doc(db, 'reservas_confirmacoes', docId), {
+      chave: key, visualizado: true,
+      visualizado_em: new Date().toISOString(),
+      visualizado_por: nomeUsr,
+    }, { merge: true })
+  }
+
+  const confirmarReserva = async (key, nomeUsr) => {
+    if (!key) return
+    const docId = key.slice(0, 100)
+    const agora = new Date().toISOString()
+    await setDoc(doc(db, 'reservas_confirmacoes', docId), {
+      chave: key, visualizado: true,
+      visualizado_em: agora, visualizado_por: nomeUsr,
+      confirmado: true, confirmado_em: agora, confirmado_por: nomeUsr,
+    }, { merge: true })
+  }
 
   const abrirTurno = async () => {
     const dataOp = toDateStr(new Date())
@@ -608,7 +719,7 @@ function AppPrincipal({ usuario, onLogout }) {
     } catch (e) { console.warn('Log falhou:', e) }
   }
 
-  const store = { extras, vales, despesas, categorias, pessoas, setores, config, turnoAtivo, updateConfig, addExtra, updateExtra, removeExtra, addPessoa, updatePessoa, removePessoa, addSetor, updateSetor, removeSetor, addVale, updateVale, removeVale, addDespesa, updateDespesa, removeDespesa, addCategoria, updateCategoria, removeCategoria, usuario, onLogout, registrarLog }
+  const store = { extras, vales, despesas, categorias, pessoas, setores, config, turnoAtivo, updateConfig, addExtra, updateExtra, removeExtra, addPessoa, updatePessoa, removePessoa, addSetor, updateSetor, removeSetor, addVale, updateVale, removeVale, addDespesa, updateDespesa, removeDespesa, addCategoria, updateCategoria, removeCategoria, usuario, onLogout, registrarLog, reservas, reservasStatus, reservasLoading, reservasErro, confirmarVisualizacaoReserva, confirmarReserva }
 
   const tabs = [
     { id: 'extras',    icon: '👤', label: 'Extras'      },
@@ -650,6 +761,20 @@ function AppPrincipal({ usuario, onLogout }) {
         </div>
       </div>
 
+      {/* Banner de alerta de reservas do dia */}
+      {(()=>{
+        const hoje = turnoAtivo?.data_op || toDateStr(new Date())
+        const reservasHojeBanner = reservas.filter(r => r.data === hoje)
+        const naoVistBanner = reservasHojeBanner.filter(r => !reservasStatus[r.key]?.visualizado).length
+        if (!config.reservas_sheet_id || reservasHojeBanner.length === 0 || naoVistBanner === 0) return null
+        return (
+          <AlertaReservasHoje
+            count={naoVistBanner}
+            onNavigate={() => { setTab('relatorios'); setRelCat('reservas') }}
+          />
+        )
+      })()}
+
       <div style={S.content}>
         {/* Tela de abertura de turno — abas operacionais bloqueadas */}
         {!carregandoTurno && !turnoAtivo && ABAS_BLOQUEADAS.includes(tab) && (
@@ -674,7 +799,7 @@ function AppPrincipal({ usuario, onLogout }) {
           <>
             {tab === 'extras'      && <TabExtras store={store} today={today} setModal={setModal} />}
             {tab === 'caixa'       && <TabCaixa store={store} today={today} setModal={setModal} />}
-            {tab === 'relatorios'  && <TabRelatoriosCentral store={store} today={today} />}
+            {tab === 'relatorios'  && <TabRelatoriosCentral store={store} today={today} extCat={relCat} setExtCat={setRelCat} />}
             {tab === 'dashboard'   && <Dashboard store={store} />}
             {tab === 'config'      && <TabConfig store={store} setModal={setModal} />}
           </>
@@ -704,6 +829,14 @@ function AppPrincipal({ usuario, onLogout }) {
                 {extras.filter(e => e.data_op === today && !e.pago).length}
               </span>
             )}
+            {t.id === 'relatorios' && (()=>{
+              const n = reservas.filter(r => r.data === today && !reservasStatus[r.key]?.visualizado).length
+              return n > 0 ? (
+                <span style={{ position: 'absolute', top: 6, right: '50%', marginRight: -18, background: C.gold, color: '#fff', borderRadius: 8, fontSize: 9, fontWeight: 800, padding: '1px 5px', minWidth: 16, textAlign: 'center' }}>
+                  {n}
+                </span>
+              ) : null
+            })()}
           </button>
         ))}
       </div>
@@ -2136,11 +2269,47 @@ function PesquisaFuncionario({ store, extras, setores, from, to, config }) {
 }
 
 
+// ─── ALERTA RESERVAS ─────────────────────────────────────────────────────────
+
+function AlertaReservasHoje({ count, onNavigate }) {
+  const [fechado, setFechado] = useState(false)
+  if (fechado || count === 0) return null
+  return (
+    <div style={{
+      background:'linear-gradient(90deg,#1a1200 0%,#2d1f00 100%)',
+      borderBottom:'2px solid #9a752044',
+      padding:'10px 18px',
+      display:'flex',alignItems:'center',justifyContent:'space-between',
+      cursor:'pointer',
+    }} onClick={onNavigate}>
+      <div style={{display:'flex',alignItems:'center',gap:10}}>
+        <div style={{width:8,height:8,borderRadius:'50%',background:'#c9a96e',
+          boxShadow:'0 0 8px #c9a96e',flexShrink:0}} />
+        <div>
+          <div style={{fontSize:13,fontWeight:800,color:'#c9a96e'}}>
+            {count} reserva{count>1?'s':''} hoje
+          </div>
+          <div style={{fontSize:10,color:'rgba(201,169,110,0.55)'}}>Toque para visualizar</div>
+        </div>
+      </div>
+      <div style={{display:'flex',alignItems:'center',gap:8}}>
+        <span style={{fontSize:18}}>📅</span>
+        <button
+          onClick={e=>{e.stopPropagation();setFechado(true)}}
+          style={{background:'none',border:'none',color:'rgba(201,169,110,0.4)',
+            fontSize:15,cursor:'pointer',padding:'4px 2px',lineHeight:1}}>✕</button>
+      </div>
+    </div>
+  )
+}
+
 // ─── ABA RELATÓRIOS CENTRAL ──────────────────────────────────────────────────
 
-function TabRelatoriosCentral({ store, today }) {
-  const { extras, vales, despesas, pessoas, setores, config } = store
-  const [cat, setCat] = useState('financeiro')
+function TabRelatoriosCentral({ store, today, extCat, setExtCat }) {
+  const { extras, vales, despesas, pessoas, setores, config, reservas, reservasStatus } = store
+  const [catInterna, setCatInterna] = useState('financeiro')
+  const cat = extCat !== undefined ? extCat : catInterna
+  const setCat = extCat !== undefined ? setExtCat : setCatInterna
 
   const [filtro, setFiltro]         = useState('semana')
   const [dataInicio, setDataInicio] = useState(today)
@@ -2192,8 +2361,46 @@ function TabRelatoriosCentral({ store, today }) {
     </div>
   )
 
+  const reservasHojeCount = reservas.filter(r=>r.data===today).length
+  const reservasPendentes = reservas.filter(r=>r.data===today&&!reservasStatus[r.key]?.visualizado).length
+
   return (
     <div>
+      {/* Botão Reservas — destaque dourado, largura total */}
+      {(()=>{
+        const ativo = cat==='reservas'
+        const temPendente = reservasPendentes > 0
+        return (
+          <button onClick={()=>setCat('reservas')}
+            style={{width:'100%',marginBottom:6,padding:'12px 16px',
+              border:`1.5px solid ${ativo?'#9a7520':temPendente?'#9a752055':C.border}`,
+              borderRadius:12,
+              background: ativo
+                ? 'linear-gradient(135deg,#2d1f00,#3d2a00)'
+                : temPendente ? 'linear-gradient(135deg,#fef9f0,#fdf6e8)' : 'transparent',
+              cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'space-between',gap:8}}>
+            <div style={{display:'flex',alignItems:'center',gap:10}}>
+              <span style={{fontSize:22}}>📅</span>
+              <div style={{textAlign:'left'}}>
+                <div style={{fontSize:13,fontWeight:800,color:ativo?'#c9a96e':temPendente?'#9a7520':C.textMuted}}>
+                  Reservas
+                </div>
+                <div style={{fontSize:10,color:ativo?'#c9a96e80':C.textDim}}>
+                  {reservasHojeCount>0
+                    ? `${reservasHojeCount} hoje${reservasPendentes>0?` · ${reservasPendentes} pendente${reservasPendentes>1?'s':''}`:''}`
+                    : 'Nenhuma reserva hoje'}
+                </div>
+              </div>
+            </div>
+            {reservasPendentes>0&&!ativo&&(
+              <span style={{background:'#9a7520',color:'#fff',borderRadius:10,fontSize:11,fontWeight:800,padding:'3px 10px'}}>
+                {reservasPendentes}
+              </span>
+            )}
+          </button>
+        )
+      })()}
+
       <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:6,marginBottom:14}}>
         {[['financeiro','💰','Financeiro'],['equipe','👥','Equipe'],['operacional','📋','Operacional'],['inteligentes','📊','Inteligentes']].map(([id,icon,label])=>(
           <button key={id} onClick={()=>setCat(id)}
@@ -2307,6 +2514,247 @@ function TabRelatoriosCentral({ store, today }) {
           />
         </div>
       )}
+
+      {cat==='reservas'&&(
+        <TabReservas store={store} today={today} />
+      )}
+    </div>
+  )
+}
+
+// ─── ABA RESERVAS ────────────────────────────────────────────────────────────
+
+function TabReservas({ store, today }) {
+  const { config, reservas, reservasStatus, reservasLoading, reservasErro,
+          confirmarVisualizacaoReserva, confirmarReserva, usuario } = store
+
+  const [filtro, setFiltro] = useState('hoje')
+  const [busca, setBusca] = useState('')
+  const [dataInicio, setDataInicio] = useState(today)
+  const [dataFim, setDataFim] = useState(today)
+
+  const amanha = toDateStr(new Date(new Date(today+'T12:00:00').getTime()+86400000))
+  const semanaFim = toDateStr(new Date(new Date(today+'T12:00:00').getTime()+6*86400000))
+  const ranges = { hoje:[today,today], amanha:[amanha,amanha], semana:[today,semanaFim], livre:[dataInicio,dataFim] }
+  const [from, to] = ranges[filtro]||[today,today]
+
+  const reservasFiltradas = useMemo(()=>
+    reservas
+      .filter(r=>r.data>=from&&r.data<=to)
+      .filter(r=>!busca||r.nome?.toLowerCase().includes(busca.toLowerCase()))
+      .sort((a,b)=>a.data.localeCompare(b.data)||(a.horario||'').localeCompare(b.horario||''))
+  ,[reservas,from,to,busca])
+
+  const reservasHoje  = useMemo(()=>reservas.filter(r=>r.data===today),[reservas,today])
+  const naoVisualizadas = reservasHoje.filter(r=>!reservasStatus[r.key]?.visualizado).length
+  const confirmadas     = reservasHoje.filter(r=>reservasStatus[r.key]?.confirmado).length
+
+  if (!config.reservas_sheet_id || !config.reservas_api_key) {
+    return (
+      <div style={{...S.card,textAlign:'center',padding:32}}>
+        <div style={{fontSize:40,marginBottom:12}}>📅</div>
+        <div style={{fontSize:16,fontWeight:700,color:C.text,marginBottom:8}}>Reservas não configuradas</div>
+        <div style={{fontSize:13,color:C.textMuted,lineHeight:1.6}}>
+          Acesse <b>Config → Geral → Reservas</b> para conectar a planilha do Google Sheets.
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <div>
+      {/* Contadores do dia */}
+      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:8,marginBottom:14}}>
+        <div style={{...S.card,marginBottom:0,textAlign:'center',padding:'12px 8px',
+          background:'linear-gradient(135deg,#2d1f00,#3d2a00)',border:'1px solid #9a752033'}}>
+          <div style={{fontSize:22,fontWeight:800,color:'#c9a96e'}}>{reservasHoje.length}</div>
+          <div style={{fontSize:9,color:'#c9a96e66',fontWeight:700,textTransform:'uppercase',letterSpacing:'0.05em'}}>Hoje</div>
+        </div>
+        <div style={{...S.card,marginBottom:0,textAlign:'center',padding:'12px 8px',
+          background:naoVisualizadas>0?'linear-gradient(135deg,#2d1500,#3d1e00)':'transparent',
+          border:`1px solid ${naoVisualizadas>0?'#f9731644':C.border}`}}>
+          <div style={{fontSize:22,fontWeight:800,color:naoVisualizadas>0?'#f97316':C.textMuted}}>{naoVisualizadas}</div>
+          <div style={{fontSize:9,color:naoVisualizadas>0?'#f97316':C.textDim,fontWeight:700,textTransform:'uppercase',letterSpacing:'0.05em'}}>Pendentes</div>
+        </div>
+        <div style={{...S.card,marginBottom:0,textAlign:'center',padding:'12px 8px'}}>
+          <div style={{fontSize:22,fontWeight:800,color:C.success}}>{confirmadas}</div>
+          <div style={{fontSize:9,color:C.success+'88',fontWeight:700,textTransform:'uppercase',letterSpacing:'0.05em'}}>Confirmadas</div>
+        </div>
+      </div>
+
+      {/* Filtros de período */}
+      <div style={{marginBottom:10}}>
+        <div style={{display:'flex',gap:4,flexWrap:'wrap',marginBottom:filtro==='livre'?8:0}}>
+          {[['hoje','Hoje'],['amanha','Amanhã'],['semana','Semana'],['livre','Período']].map(([id,label])=>(
+            <button key={id} onClick={()=>setFiltro(id)}
+              style={{padding:'6px 14px',border:`1px solid ${filtro===id?'#9a7520':C.border}`,
+                borderRadius:16,background:filtro===id?'#9a752018':'transparent',
+                color:filtro===id?'#9a7520':C.textMuted,fontSize:11,cursor:'pointer',
+                fontWeight:filtro===id?700:400}}>
+              {label}
+            </button>
+          ))}
+        </div>
+        {filtro==='livre'&&(
+          <div style={{display:'flex',gap:8,alignItems:'center',marginTop:8}}>
+            <input type="date" value={dataInicio} onChange={e=>setDataInicio(e.target.value)} style={{...S.input,flex:1}}/>
+            <span style={{color:C.textMuted}}>→</span>
+            <input type="date" value={dataFim} onChange={e=>setDataFim(e.target.value)} style={{...S.input,flex:1}}/>
+          </div>
+        )}
+      </div>
+
+      {/* Busca por nome */}
+      <div style={{marginBottom:14,position:'relative'}}>
+        <input value={busca} onChange={e=>setBusca(e.target.value)}
+          style={{...S.input,paddingLeft:36}} placeholder="Buscar por nome..." />
+        <span style={{position:'absolute',left:12,top:'50%',transform:'translateY(-50%)',
+          fontSize:14,color:C.textDim,pointerEvents:'none'}}>🔍</span>
+      </div>
+
+      {/* Loading / Erro */}
+      {reservasLoading&&(
+        <div style={{textAlign:'center',padding:32,color:C.textMuted}}>
+          <div style={{fontSize:28}}>⏳</div>
+          <div style={{marginTop:8,fontSize:13}}>Sincronizando com a planilha...</div>
+        </div>
+      )}
+      {reservasErro&&!reservasLoading&&(
+        <div style={{...S.card,border:`1px solid ${C.danger}44`,background:C.danger+'08',marginBottom:12}}>
+          <div style={{fontSize:13,fontWeight:700,color:C.danger}}>⚠️ Erro ao carregar planilha</div>
+          <div style={{fontSize:12,color:C.textMuted,marginTop:4,lineHeight:1.5}}>{reservasErro}</div>
+        </div>
+      )}
+
+      {/* Banner do dia */}
+      {!reservasLoading&&!reservasErro&&filtro==='hoje'&&(
+        <div style={{...S.card,marginBottom:14,padding:'14px 18px',
+          background:reservasHoje.length>0?'linear-gradient(135deg,#1a1200,#2d1f00)':C.bgCard2,
+          border:`1px solid ${reservasHoje.length>0?'#9a752033':C.border}`}}>
+          <div style={{display:'flex',alignItems:'center',gap:10}}>
+            <span style={{fontSize:26}}>📅</span>
+            <div>
+              <div style={{fontSize:14,fontWeight:800,
+                color:reservasHoje.length>0?'#c9a96e':C.textMuted}}>
+                {reservasHoje.length>0
+                  ?`Há ${reservasHoje.length} reserva${reservasHoje.length>1?'s':''} agendada${reservasHoje.length>1?'s':''} para hoje`
+                  :'Nenhuma reserva para hoje'}
+              </div>
+              {naoVisualizadas>0&&(
+                <div style={{fontSize:11,color:'#f97316',fontWeight:600,marginTop:2}}>
+                  {naoVisualizadas} aguardando visualização
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Lista vazia */}
+      {!reservasLoading&&reservasFiltradas.length===0&&(
+        <div style={{textAlign:'center',padding:32,color:C.textMuted,fontSize:13}}>
+          {reservas.length===0?'Nenhuma reserva na planilha':'Nenhuma reserva neste período'}
+        </div>
+      )}
+
+      {/* Cards de reservas */}
+      {reservasFiltradas.map((reserva,i)=>{
+        const status = reservasStatus[reserva.key]||{}
+        const ehHoje = reserva.data===today
+        const visualizado = !!status.visualizado
+        const confirmado  = !!status.confirmado
+
+        return (
+          <div key={reserva.key||i} style={{
+            ...S.card,
+            border:`1px solid ${!visualizado&&ehHoje?'#9a752055':confirmado?C.success+'44':C.border}`,
+            background:!visualizado&&ehHoje?'linear-gradient(135deg,#fefcf6,#fdf8ec)':C.bgCard,
+            marginBottom:12,
+          }}>
+            {/* Cabeçalho */}
+            <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:10}}>
+              <div style={{flex:1,minWidth:0}}>
+                <div style={{fontSize:16,fontWeight:800,color:C.text,marginBottom:4}}>
+                  {reserva.nome||'—'}
+                </div>
+                {!visualizado&&ehHoje&&(
+                  <span style={{display:'inline-flex',alignItems:'center',gap:5,
+                    background:'#9a752012',border:'1px solid #9a752030',borderRadius:8,
+                    padding:'2px 9px',marginBottom:4}}>
+                    <span style={{width:6,height:6,borderRadius:'50%',background:'#9a7520',display:'inline-block'}}/>
+                    <span style={{fontSize:10,fontWeight:700,color:'#9a7520'}}>NÃO VISUALIZADA</span>
+                  </span>
+                )}
+                {confirmado&&(
+                  <span style={{display:'inline-flex',alignItems:'center',gap:4,
+                    background:C.success+'12',border:`1px solid ${C.success}30`,borderRadius:8,
+                    padding:'2px 9px',marginBottom:4}}>
+                    <span style={{fontSize:10,fontWeight:700,color:C.success}}>✓ CONFIRMADA</span>
+                  </span>
+                )}
+              </div>
+              <div style={{textAlign:'right',flexShrink:0,marginLeft:10}}>
+                <div style={{fontSize:20,fontWeight:800,color:ehHoje?'#9a7520':C.primary}}>
+                  {reserva.horario||'—'}
+                </div>
+                <div style={{fontSize:11,color:C.textMuted}}>
+                  {dayLabel(reserva.data)}
+                </div>
+              </div>
+            </div>
+
+            {/* Chips de detalhes */}
+            <div style={{display:'flex',gap:6,flexWrap:'wrap',marginBottom:10}}>
+              {reserva.pessoas&&(
+                <div style={{display:'flex',alignItems:'center',gap:4,background:C.bgCard2,
+                  borderRadius:8,padding:'4px 10px'}}>
+                  <span style={{fontSize:12}}>👥</span>
+                  <span style={{fontSize:12,fontWeight:600,color:C.text}}>{reserva.pessoas} pessoas</span>
+                </div>
+              )}
+              <div style={{display:'flex',alignItems:'center',gap:4,background:C.bgCard2,
+                borderRadius:8,padding:'4px 10px'}}>
+                <span style={{fontSize:12}}>📅</span>
+                <span style={{fontSize:12,fontWeight:600,color:C.text}}>
+                  {reserva.data.split('-').reverse().join('/')}
+                </span>
+              </div>
+            </div>
+
+            {/* Observações */}
+            {reserva.obs&&(
+              <div style={{fontSize:12,color:C.textMuted,background:C.bgCard2,
+                borderRadius:8,padding:'8px 12px',marginBottom:10,lineHeight:1.5}}>
+                📝 {reserva.obs}
+              </div>
+            )}
+
+            {/* Ações */}
+            {!confirmado?(
+              <div style={{display:'flex',gap:8}}>
+                {!visualizado&&(
+                  <button
+                    onClick={()=>confirmarVisualizacaoReserva(reserva.key,usuario.nome)}
+                    style={{...S.btn('#9a7520',true),flex:1,fontSize:12,padding:'10px 12px'}}>
+                    👁 Visualizar
+                  </button>
+                )}
+                <button
+                  onClick={()=>confirmarReserva(reserva.key,usuario.nome)}
+                  style={{...S.btn(C.success),flex:2,fontSize:12,padding:'10px 12px'}}>
+                  ✓ Confirmar reserva
+                </button>
+              </div>
+            ):(
+              <div style={{fontSize:11,color:C.textDim,textAlign:'center',paddingTop:4}}>
+                Confirmada por <b>{status.confirmado_por}</b>
+                {status.confirmado_em&&' · '+new Date(status.confirmado_em)
+                  .toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'})}
+              </div>
+            )}
+          </div>
+        )
+      })}
     </div>
   )
 }
@@ -3306,6 +3754,33 @@ function TabConfig({ store, setModal }) {
   const [whatsapp, setWhatsapp] = useState(config.whatsapp_pix)
   const [savedMsg, setSavedMsg] = useState('')
 
+  const [rsSheetId, setRsSheetId]       = useState(config.reservas_sheet_id || '')
+  const [rsApiKey, setRsApiKey]         = useState(config.reservas_api_key || '')
+  const [rsSheetName, setRsSheetName]   = useState(config.reservas_sheet_name || 'Reservas')
+  const [rsHeaderRow, setRsHeaderRow]   = useState(String(config.reservas_header_row ?? 1))
+  const [rsColData, setRsColData]       = useState(String(config.reservas_col_data ?? 0))
+  const [rsColHorario, setRsColHorario] = useState(String(config.reservas_col_horario ?? 1))
+  const [rsColNome, setRsColNome]       = useState(String(config.reservas_col_nome ?? 2))
+  const [rsColPessoas, setRsColPessoas] = useState(String(config.reservas_col_pessoas ?? 3))
+  const [rsColObs, setRsColObs]         = useState(String(config.reservas_col_obs ?? 4))
+  const [rsSavedMsg, setRsSavedMsg]     = useState('')
+
+  const salvarReservas = () => {
+    updateConfig({
+      reservas_sheet_id: rsSheetId.trim(),
+      reservas_api_key: rsApiKey.trim(),
+      reservas_sheet_name: rsSheetName.trim() || 'Reservas',
+      reservas_header_row: parseInt(rsHeaderRow) || 1,
+      reservas_col_data: parseInt(rsColData) || 0,
+      reservas_col_horario: parseInt(rsColHorario) || 1,
+      reservas_col_nome: parseInt(rsColNome) || 2,
+      reservas_col_pessoas: parseInt(rsColPessoas) || 3,
+      reservas_col_obs: parseInt(rsColObs) || 4,
+    })
+    setRsSavedMsg('✓ Salvo!')
+    setTimeout(() => setRsSavedMsg(''), 2500)
+  }
+
   const salvarGeral = () => {
     updateConfig({
       nome_estabelecimento: nomeEstab.trim() || 'ARACÁ GRILL',
@@ -3357,6 +3832,64 @@ function TabConfig({ store, setModal }) {
               {savedMsg || 'Salvar configurações'}
             </button>
           </div>
+          {/* Reservas config */}
+          <div style={S.card}>
+            <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 4, display:'flex', alignItems:'center', gap:8 }}>
+              📅 Reservas — Google Sheets
+            </div>
+            <div style={{ fontSize: 12, color: C.textMuted, marginBottom: 14, lineHeight: 1.5 }}>
+              Conecte a planilha existente do Google Drive para listar e confirmar reservas.
+            </div>
+            <div style={{ marginBottom: 10 }}>
+              <label style={S.label}>ID da planilha</label>
+              <input value={rsSheetId} onChange={e=>setRsSheetId(e.target.value)} style={S.input}
+                placeholder="Ex: 1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgVE2upms" />
+              <div style={{ fontSize: 11, color: '#999', marginTop: 4 }}>
+                Extraia da URL: docs.google.com/spreadsheets/d/<b>ID</b>/edit
+              </div>
+            </div>
+            <div style={{ marginBottom: 10 }}>
+              <label style={S.label}>Chave de API do Google</label>
+              <input value={rsApiKey} onChange={e=>setRsApiKey(e.target.value)} style={S.input}
+                placeholder="AIza..." type="password" />
+              <div style={{ fontSize: 11, color: '#999', marginTop: 4 }}>
+                Crie em console.cloud.google.com → APIs → Google Sheets API → Credenciais
+              </div>
+            </div>
+            <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:8, marginBottom:10 }}>
+              <div>
+                <label style={S.label}>Nome da aba</label>
+                <input value={rsSheetName} onChange={e=>setRsSheetName(e.target.value)} style={S.input} placeholder="Reservas" />
+              </div>
+              <div>
+                <label style={S.label}>Linhas de cabeçalho</label>
+                <input value={rsHeaderRow} onChange={e=>setRsHeaderRow(e.target.value)} style={S.input}
+                  placeholder="1" inputMode="numeric" />
+              </div>
+            </div>
+            <div style={{ fontSize: 12, fontWeight: 700, color: C.textMuted, marginBottom: 8 }}>
+              Mapeamento de colunas (0 = A, 1 = B, 2 = C…)
+            </div>
+            <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:6, marginBottom:14 }}>
+              {[
+                ['Data',rsColData,setRsColData],
+                ['Horário',rsColHorario,setRsColHorario],
+                ['Nome',rsColNome,setRsColNome],
+                ['Pessoas',rsColPessoas,setRsColPessoas],
+                ['Obs.',rsColObs,setRsColObs],
+              ].map(([label,val,set])=>(
+                <div key={label}>
+                  <label style={{...S.label,fontSize:10}}>{label}</label>
+                  <input value={val} onChange={e=>set(e.target.value)} inputMode="numeric"
+                    style={{...S.input,padding:'8px 10px',fontSize:13,textAlign:'center'}} />
+                </div>
+              ))}
+            </div>
+            <button onClick={salvarReservas} style={{ ...S.btn(rsSavedMsg?C.success:C.gold) }}>
+              {rsSavedMsg||'💾 Salvar configuração de Reservas'}
+            </button>
+          </div>
+
           <div style={{ ...S.card, background: C.bgCard2, border: `1px solid ${C.border}` }}>
             <div style={{ fontSize: 12, color: C.secondary, fontWeight: 700 }}>ℹ️ {config.nome_estabelecimento} v2.0</div>
             <div style={{ fontSize: 12, color: C.textMuted }}>Sistema operacional de extras · Firebase Firestore</div>
