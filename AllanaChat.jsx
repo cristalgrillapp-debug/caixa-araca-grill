@@ -448,7 +448,7 @@ export default function AllanaChat() {
       <button
         className={`all-fab${pulso ? ' is-pulse' : ''}`}
         onClick={abrir}
-        aria-label="Abrir chat da Allana, concierge digital do Araçá Grill"
+        aria-label="Abrir chat da Allana, atendente virtual do Araçá Grill"
         style={{
           position: 'fixed',
           right: 16,
@@ -559,7 +559,7 @@ export default function AllanaChat() {
                 width: 6, height: 6, borderRadius: '50%', background: A.online,
                 boxShadow: `0 0 6px rgba(74,222,128,0.7)`,
               }} />
-              Concierge digital · online
+              Atendente virtual · online
             </div>
           </div>
           <button className="all-close" onClick={fechar} aria-label="Fechar chat"
