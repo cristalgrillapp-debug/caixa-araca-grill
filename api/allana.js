@@ -59,16 +59,59 @@ function espera(ms) {
   return new Promise(r => setTimeout(r, ms))
 }
 
+// Monta um mini-resumo do que já foi tratado, para a IA não re-perguntar
+// nem repetir informação. Extrai sinais leves (datas, nº de pessoas, intents
+// já entregues) a partir do histórico — barato em tokens, alto em fluidez.
+function resumirContexto(history) {
+  if (!Array.isArray(history) || history.length === 0) return ''
+
+  const userTexts = history.filter(m => m?.role === 'user').map(m => String(m.content || '').toLowerCase())
+  const botTexts  = history.filter(m => m?.role === 'assistant').map(m => String(m.content || '').toLowerCase())
+  const all = userTexts.join(' ') + ' ' + botTexts.join(' ')
+
+  const sinais = []
+
+  // pessoas
+  const pessoas = userTexts.join(' ').match(/(\d{1,3})\s*(pessoas|pessoa|adultos|gente|convidados)/)
+  if (pessoas) sinais.push(`grupo de ${pessoas[1]} pessoas`)
+
+  // período
+  if (/\balmoco|almoço\b/.test(all)) sinais.push('interesse em almoço')
+  else if (/\bjantar|noite\b/.test(all)) sinais.push('interesse em jantar')
+
+  // dia da semana / data
+  const dia = all.match(/\b(segunda|terça|terca|quarta|quinta|sexta|sábado|sabado|domingo|hoje|amanha|amanhã)\b/)
+  if (dia) sinais.push(`mencionou ${dia[1]}`)
+
+  // ocasião
+  if (/aniversari|bodas|comemora|formatura/.test(all)) sinais.push('ocasião especial')
+
+  // informações já entregues pela Allana
+  const entregues = []
+  if (botTexts.some(t => t.includes('rua aviação') || t.includes('rua aviacao'))) entregues.push('endereço')
+  if (botTexts.some(t => t.includes('17h') || t.includes('11h'))) entregues.push('horário')
+  if (botTexts.some(t => t.includes('99185-0160'))) entregues.push('whatsapp')
+  if (botTexts.some(t => t.includes('cardápio') || t.includes('cardapio'))) entregues.push('cardápio')
+  if (botTexts.some(t => t.includes('crédito') || t.includes('credito') || t.includes('pix'))) entregues.push('pagamento')
+  if (entregues.length) sinais.push(`já informou: ${entregues.join(', ')}`)
+
+  if (!sinais.length) return ''
+  return `CONTEXTO DA CONVERSA (não repita o que já foi dito; varie o fraseado): ${sinais.join('; ')}.`
+}
+
 // Camada 2 (principal) com 1 retry; depois Camada 3 (fallback) sem retry.
 async function chamarIA({ history, message }) {
   const primary = process.env.MODEL_PRIMARY || 'google/gemini-2.5-flash-lite'
   const fallback = process.env.MODEL_FALLBACK || 'google/gemini-2.5-flash'
 
+  const contexto = resumirContexto(history)
+  const systemFinal = contexto ? `${SYSTEM_PROMPT}\n\n${contexto}` : SYSTEM_PROMPT
+
   // ── Camada 2: principal + 1 retry ──
   for (let tentativa = 0; tentativa < 2; tentativa++) {
     try {
       const { content, usage } = await callModel({
-        model: primary, system: SYSTEM_PROMPT, history, message,
+        model: primary, system: systemFinal, history, message,
       })
       const { ok, data } = validateResponse(content)
       if (ok) return { data, camada: 'principal', usage }
@@ -83,7 +126,7 @@ async function chamarIA({ history, message }) {
   // ── Camada 3: fallback, sem retry ──
   try {
     const { content, usage } = await callModel({
-      model: fallback, system: SYSTEM_PROMPT, history, message,
+      model: fallback, system: systemFinal, history, message,
     })
     const { ok, data } = validateResponse(content)
     if (ok) return { data, camada: 'fallback', usage }

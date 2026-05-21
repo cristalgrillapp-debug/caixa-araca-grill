@@ -410,7 +410,7 @@ export default function AllanaChat() {
     setCarregando(true)
     const history = mensagens
       .filter(m => m.role === 'user' || m.role === 'assistant')
-      .slice(-6)
+      .slice(-10)
       .map(m => ({ role: m.role, content: m.content }))
 
     const ctrl = new AbortController()
