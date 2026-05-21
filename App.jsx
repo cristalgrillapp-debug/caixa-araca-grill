@@ -4238,7 +4238,7 @@ function TabConfig({ store, setModal }) {
     <div>
       {/* Sub-navegação */}
       <div style={{ display: 'flex', gap: 3, background: '#f0e8d8', padding: 4, borderRadius: 14, marginBottom: 14 }}>
-        {[['geral','🏠 Geral'],['pessoas','👥 Pessoas'],['operacional','📁 Operac'],['turnos','🕒 Turnos'],['dados','🗄️ Dados']].map(([id, label]) => (
+        {[['geral','🏠 Geral'],['pessoas','👥 Pessoas'],['operacional','📁 Op'],['turnos','🕒 Turnos'],['musica','🎵 Música'],['dados','🗄️ Dados']].map(([id, label]) => (
           <button key={id} onClick={() => setSubConfig(id)}
             style={{ flex: 1, padding: '8px 2px', border: 'none', borderRadius: 10, background: subConfig === id ? '#fff' : 'transparent',
               cursor: 'pointer', fontSize: 10, fontWeight: subConfig === id ? 800 : 400,
@@ -4352,6 +4352,9 @@ function TabConfig({ store, setModal }) {
 
       {/* ─── TURNOS RETROATIVOS ─── */}
       {subConfig === 'turnos' && <SecaoTurnos store={store} />}
+
+      {/* ─── ESCALA MUSICAL ─── */}
+      {subConfig === 'musica' && <SecaoEscalaMusica store={store} setModal={setModal} />}
 
       {/* ─── DADOS ─── */}
       {subConfig === 'dados' && (
@@ -4574,6 +4577,496 @@ function SecaoTurnos({ store }) {
           )
         })}
       </div>
+    </div>
+  )
+}
+
+
+// ─── SEÇÃO ESCALA MUSICAL ────────────────────────────────────────────────────
+// Sobe uma imagem da escala semanal, a IA extrai dados estruturados, o usuário
+// revisa/corrige no preview e confirma. Gera extras com chave de idempotência
+// e atualiza a "agenda da semana" enxuta consumida pela Allana (sem valores).
+
+// Normaliza nome para fuzzy match (lowercase, sem acento, espaços colapsados).
+function normalizarNomeMusico(s) {
+  return String(s || '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
+    .replace(/[^a-z0-9 ]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+// SHA-256 de uma string (data URL completo). Usa Web Crypto.
+async function sha256(texto) {
+  const buf = new TextEncoder().encode(texto)
+  const hash = await crypto.subtle.digest('SHA-256', buf)
+  return Array.from(new Uint8Array(hash))
+    .map(b => b.toString(16).padStart(2, '0')).join('')
+}
+
+// Redimensiona imagem para max 1600px no maior lado, qualidade 0.85 JPEG.
+function comprimirImagem(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onerror = () => reject(new Error('Falha ao ler imagem'))
+    reader.onload = () => {
+      const img = new Image()
+      img.onerror = () => reject(new Error('Imagem inválida'))
+      img.onload = () => {
+        const MAX = 1600
+        let { width, height } = img
+        if (width > MAX || height > MAX) {
+          const r = Math.min(MAX / width, MAX / height)
+          width = Math.round(width * r); height = Math.round(height * r)
+        }
+        const canvas = document.createElement('canvas')
+        canvas.width = width; canvas.height = height
+        canvas.getContext('2d').drawImage(img, 0, 0, width, height)
+        resolve(canvas.toDataURL('image/jpeg', 0.85))
+      }
+      img.src = reader.result
+    }
+    reader.readAsDataURL(file)
+  })
+}
+
+// Dado um dia da escala (já normalizado), aplica a regra de turno/horário:
+// - 1 músico no dia → noite (20h)
+// - 2 músicos → primeiro almoço (12h), segundo noite (20h)
+// - 3+ → todos noite por padrão (operador edita se quiser)
+// - turno_explicito da IA tem prioridade sobre a regra
+function aplicarRegraTurnos(musicos) {
+  const total = musicos.length
+  return musicos.map((m, i) => {
+    if (m.turno_explicito === 'almoco') return { ...m, turno: 'TD', horario: '12:00' }
+    if (m.turno_explicito === 'noite')  return { ...m, turno: 'TN', horario: '20:00' }
+    if (total === 1) return { ...m, turno: 'TN', horario: '20:00' }
+    if (total === 2) return i === 0
+      ? { ...m, turno: 'TD', horario: '12:00' }
+      : { ...m, turno: 'TN', horario: '20:00' }
+    return { ...m, turno: 'TN', horario: '20:00' }
+  })
+}
+
+function SecaoEscalaMusica({ store, setModal }) {
+  const { addExtra, setores, pessoas, usuario, registrarLog, extras, removeExtra } = store
+
+  const [imagem, setImagem]   = useState(null)   // data URL comprimido
+  const [hash, setHash]       = useState('')
+  const [carregando, setCarregando] = useState(false)
+  const [erro, setErro]       = useState('')
+  const [resultado, setResultado] = useState(null) // payload da IA + edições
+  const [aliases, setAliases] = useState({})       // mapa carregado de musicos_aliases
+  const [salvando, setSalvando] = useState(false)
+  const [mensagem, setMensagem] = useState('')
+
+  const setorMusica = setores.find(s => normalizarNomeMusico(s.nome) === 'musica' && s.ativo)
+
+  // Carrega aliases ao montar
+  useEffect(() => {
+    const unsub = onSnapshot(collection(db, 'musicos_aliases'), s => {
+      const m = {}
+      s.docs.forEach(d => { m[d.id] = d.data() })
+      setAliases(m)
+    })
+    return () => unsub()
+  }, [])
+
+  const onArquivo = async (file) => {
+    if (!file) return
+    setErro(''); setMensagem(''); setResultado(null)
+    try {
+      setCarregando(true)
+      const dataUrl = await comprimirImagem(file)
+      setImagem(dataUrl)
+      const h = await sha256(dataUrl)
+      setHash(h)
+
+      // Tenta cache local primeiro
+      const cacheRef = doc(db, 'escalas_musica_cache', h)
+      const cacheSnap = await getDoc(cacheRef)
+      let payload
+      if (cacheSnap.exists()) {
+        payload = cacheSnap.data().resultado_ia
+        setMensagem('Resultado carregado do cache (sem custo de IA).')
+      } else {
+        const r = await fetch('/api/escala-musica/analisar', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ image: dataUrl }),
+        })
+        const j = await r.json()
+        if (!r.ok || !j.ok) throw new Error(j.error || 'Falha ao analisar imagem')
+        payload = j.escala
+        await setDoc(cacheRef, {
+          resultado_ia: payload,
+          criado_em: new Date().toISOString(),
+          criado_por: usuario?.nome || '',
+        })
+      }
+      // Aplica regras e match
+      const dias = (payload.dias || []).map(d => {
+        const musicos = aplicarRegraTurnos(d.musicos || []).map(m => {
+          const norm = normalizarNomeMusico(m.nome)
+          const alias = aliases[norm]
+          const pessoaPorAlias = alias ? pessoas.find(p => p.id === alias.pessoa_id) : null
+          const pessoaPorNome = pessoas.find(p => normalizarNomeMusico(p.nome) === norm)
+          const pessoaMatch = pessoaPorAlias || pessoaPorNome
+          return {
+            nome: m.nome || '',
+            valor: typeof m.valor === 'number' ? m.valor : null,
+            turno: m.turno,
+            horario: m.horario,
+            confianca_nome: m.confianca_nome || 'alta',
+            confianca_valor: m.confianca_valor || 'alta',
+            pessoa_id: pessoaMatch?.id || '',
+          }
+        })
+        return { data: d.data || '', dia_semana: d.dia_semana || '', musicos }
+      })
+      setResultado({ semana_iso: payload.semana_iso || '', dias })
+    } catch (e) {
+      setErro(e.message || 'Falha na análise')
+    } finally { setCarregando(false) }
+  }
+
+  const atualizarMusico = (idxDia, idxMus, campo, valor) => {
+    setResultado(prev => {
+      if (!prev) return prev
+      const dias = prev.dias.slice()
+      const dia = { ...dias[idxDia] }
+      const musicos = dia.musicos.slice()
+      musicos[idxMus] = { ...musicos[idxMus], [campo]: valor }
+      dia.musicos = musicos
+      dias[idxDia] = dia
+      return { ...prev, dias }
+    })
+  }
+
+  const atualizarData = (idxDia, novaData) => {
+    setResultado(prev => {
+      if (!prev) return prev
+      const dias = prev.dias.slice()
+      dias[idxDia] = { ...dias[idxDia], data: novaData }
+      return { ...prev, dias }
+    })
+  }
+
+  // Validação: tudo precisa ter data, nome, valor e horário.
+  const linhasComProblema = useMemo(() => {
+    if (!resultado) return []
+    const out = []
+    resultado.dias.forEach((d, i) => {
+      d.musicos.forEach((m, j) => {
+        const probs = []
+        if (!d.data) probs.push('data')
+        if (!m.nome?.trim()) probs.push('nome')
+        if (!m.valor || m.valor < 1) probs.push('valor')
+        if (!m.horario) probs.push('horário')
+        if (probs.length) out.push({ i, j, probs })
+      })
+    })
+    return out
+  }, [resultado])
+
+  // Detecta conflitos: extras já lançados com import_key musica:<data>:* na mesma data.
+  const conflitosPorDia = useMemo(() => {
+    if (!resultado) return {}
+    const out = {}
+    for (const d of resultado.dias) {
+      if (!d.data) continue
+      const existentes = extras.filter(e =>
+        typeof e.import_key === 'string' &&
+        e.import_key.startsWith(`musica:${d.data}:`)
+      )
+      if (existentes.length) out[d.data] = existentes
+    }
+    return out
+  }, [resultado, extras])
+
+  const totalGeral = useMemo(() => {
+    if (!resultado) return { qtd: 0, total: 0 }
+    let qtd = 0, total = 0
+    resultado.dias.forEach(d => d.musicos.forEach(m => {
+      qtd += 1; total += (m.valor || 0) * 100
+    }))
+    return { qtd, total }
+  }, [resultado])
+
+  const confirmarImportacao = async () => {
+    if (!resultado) return
+    if (linhasComProblema.length) {
+      setErro(`${linhasComProblema.length} linha(s) com campos faltando. Corrija antes de confirmar.`)
+      return
+    }
+    // Conflito: pergunta antes de substituir
+    const datasComConflito = Object.keys(conflitosPorDia)
+    if (datasComConflito.length) {
+      const datasFmt = datasComConflito.map(d => d.split('-').reverse().join('/')).join(', ')
+      const conflitosArr = datasComConflito.flatMap(d => conflitosPorDia[d])
+      const algumPago = conflitosArr.some(e => e.pago)
+      if (algumPago) {
+        setErro(`Há lançamentos JÁ PAGOS para os dias: ${datasFmt}. Para sobrescrever, edite/exclua manualmente esses pagamentos primeiro.`)
+        return
+      }
+      if (!confirm(`Já existem lançamentos de música para: ${datasFmt}.\n\nDeseja SUBSTITUIR (apagar os antigos e criar os novos)?`)) {
+        return
+      }
+    }
+
+    setErro(''); setSalvando(true); setMensagem('')
+    try {
+      // 1. Apaga conflitos não-pagos
+      const aRemover = Object.values(conflitosPorDia).flat().filter(e => !e.pago)
+      for (const e of aRemover) await removeExtra(e.id)
+
+      // 2. Cria novos extras
+      const idsCriados = []
+      const aliasesNovos = []
+      const agenda = []
+      for (const d of resultado.dias) {
+        const lancamentosDia = []
+        for (const m of d.musicos) {
+          const valorCent = Math.round((m.valor || 0) * 100)
+          const importKey = `musica:${d.data}:${normalizarNomeMusico(m.nome)}:${m.turno}`
+          const dadosExtra = {
+            pessoa_id: m.pessoa_id || null,
+            nome: m.nome.trim(),
+            funcao: 'Música',
+            setor_id: setorMusica?.id || '',
+            data_op: d.data,                  // data real do dia da escala
+            data_real: toDateStr(new Date()),
+            turnos: m.turno,
+            obs: `Escala semanal · ${m.horario}`,
+            valor_extra: valorCent,
+            valor_original: valorCent,
+            valor_final: valorCent,
+            desconto_troco: 0,
+            valor_pago: 0,
+            troco_gerado: 0,
+            pago: false,
+            previsao: 'indefinido',
+            assinatura: null,
+            forma_pagamento: null,
+            lancado: false,
+            trocos_descontados: [],
+            import_key: importKey,
+            import_origem: 'escala_musica',
+            import_hash: hash,
+          }
+          const ref = await addDoc(collection(db, 'extras'), dadosExtra)
+          idsCriados.push(ref.id)
+          // Alias novo: nome da escala difere do cadastrado
+          if (m.pessoa_id) {
+            const p = pessoas.find(x => x.id === m.pessoa_id)
+            if (p) {
+              const norm = normalizarNomeMusico(m.nome)
+              const normPessoa = normalizarNomeMusico(p.nome)
+              if (norm && norm !== normPessoa && !aliases[norm]) {
+                aliasesNovos.push({ alias: norm, pessoa_id: p.id, nome_real: p.nome })
+              }
+            }
+          }
+          lancamentosDia.push({ nome: m.nome.trim(), turno: m.turno })
+        }
+        if (d.data && lancamentosDia.length) {
+          agenda.push({ data: d.data, dia_semana: d.dia_semana || '', lancamentos: lancamentosDia })
+        }
+      }
+
+      // 3. Aliases descobertos
+      for (const a of aliasesNovos) {
+        await setDoc(doc(db, 'musicos_aliases', a.alias), {
+          pessoa_id: a.pessoa_id, nome_real: a.nome_real,
+          criado_em: new Date().toISOString(),
+        })
+      }
+
+      // 4. Registro da importação (permite desfazer)
+      const escalaRef = await addDoc(collection(db, 'escalas_musica'), {
+        hash, semana_iso: resultado.semana_iso || '',
+        importada_em: new Date().toISOString(),
+        importada_por: usuario?.nome || '',
+        extras_ids: idsCriados, status: 'ativa',
+      })
+
+      // 5. Agenda da semana (sem valores) para a Allana
+      await setDoc(doc(db, 'configuracoes', 'agenda_musica_atual'), {
+        semana_iso: resultado.semana_iso || '',
+        atualizada_em: new Date().toISOString(),
+        dias: agenda,
+      })
+
+      await registrarLog('escala_musica_importada', {
+        escala_id: escalaRef.id, hash,
+        qtd_extras: idsCriados.length,
+        substituidos: aRemover.length,
+      })
+
+      setMensagem(`✅ ${idsCriados.length} lançamento(s) criado(s).`)
+      setResultado(null); setImagem(null); setHash('')
+    } catch (e) {
+      console.error(e)
+      setErro(e.message || 'Falha ao salvar')
+    } finally { setSalvando(false) }
+  }
+
+  return (
+    <div>
+      <div style={S.card}>
+        <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 4 }}>
+          🎵 Importar escala semanal de música
+        </div>
+        <div style={{ fontSize: 12, color: C.textMuted, marginBottom: 12 }}>
+          Suba a imagem da escala. A IA identifica dias, músicos e cachês.
+          Você revisa, ajusta o que precisar e confirma — só então os
+          lançamentos são criados.
+        </div>
+
+        {!setorMusica && (
+          <div style={{
+            background: '#92400e22', border: '1px solid #92400e55', borderRadius: 8,
+            padding: 10, fontSize: 12, color: '#fbbf24', marginBottom: 10,
+          }}>
+            ⚠ Não encontrei o setor "Música" ativo. Crie/ative em Configurações → Operac antes.
+          </div>
+        )}
+
+        <label style={{
+          display: 'inline-flex', alignItems: 'center', gap: 8,
+          padding: '12px 18px', borderRadius: 12,
+          border: `1px dashed ${C.gold}88`, color: C.gold,
+          background: '#1a120422', cursor: 'pointer', fontSize: 13, fontWeight: 700,
+        }}>
+          📷 Selecionar imagem
+          <input type="file" accept="image/*" style={{ display: 'none' }}
+            onChange={e => onArquivo(e.target.files?.[0])} />
+        </label>
+
+        {carregando && (
+          <div style={{ marginTop: 12, fontSize: 12, color: C.textMuted }}>
+            Analisando imagem com IA…
+          </div>
+        )}
+        {erro && (
+          <div style={{ marginTop: 12, fontSize: 12, color: C.danger }}>{erro}</div>
+        )}
+        {mensagem && !erro && (
+          <div style={{ marginTop: 12, fontSize: 12, color: C.success }}>{mensagem}</div>
+        )}
+
+        {imagem && resultado && (
+          <div style={{ marginTop: 14 }}>
+            <img src={imagem} alt="" style={{
+              maxWidth: '100%', maxHeight: 180, objectFit: 'contain',
+              borderRadius: 8, border: `1px solid ${C.border}`,
+            }} />
+          </div>
+        )}
+      </div>
+
+      {resultado && (
+        <div style={S.card}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+            <div style={{ fontWeight: 700, fontSize: 15 }}>Preview · revise e ajuste</div>
+            <button onClick={() => setModal({ type: 'addPessoa' })}
+              style={{ ...S.btn(C.accent, true), padding: '6px 10px', fontSize: 11 }}>
+              ✚ Nova pessoa
+            </button>
+          </div>
+
+          {resultado.dias.map((d, i) => (
+            <div key={i} style={{
+              border: `1px solid ${C.border}`, borderRadius: 10,
+              padding: 10, marginBottom: 10, background: C.bgCard2,
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+                <span style={{ fontSize: 11, fontWeight: 800, color: C.textMuted,
+                  textTransform: 'uppercase', minWidth: 70 }}>{d.dia_semana || '—'}</span>
+                <input type="date" value={d.data || ''}
+                  onChange={e => atualizarData(i, e.target.value)}
+                  style={{ ...S.input, flex: 1, padding: '6px 10px', fontSize: 12 }} />
+                {conflitosPorDia[d.data] && (
+                  <span style={{ fontSize: 10, fontWeight: 700, color: '#fbbf24' }}>
+                    ⚠ {conflitosPorDia[d.data].length} já existe(m)
+                  </span>
+                )}
+              </div>
+              {d.musicos.map((m, j) => {
+                const baixaConfNome  = m.confianca_nome === 'baixa'
+                const baixaConfValor = m.confianca_valor === 'baixa'
+                return (
+                  <div key={j} style={{
+                    display: 'grid',
+                    gridTemplateColumns: '2fr 1fr 0.8fr 0.9fr 1.6fr',
+                    gap: 6, marginBottom: 6, alignItems: 'center',
+                  }}>
+                    <input value={m.nome}
+                      onChange={e => atualizarMusico(i, j, 'nome', e.target.value)}
+                      placeholder="Nome"
+                      style={{
+                        ...S.input, padding: '6px 8px', fontSize: 12,
+                        borderColor: baixaConfNome ? '#f59e0b88' : C.border,
+                      }} />
+                    <input type="number" value={m.valor || ''}
+                      onChange={e => atualizarMusico(i, j, 'valor', e.target.value ? parseInt(e.target.value, 10) : null)}
+                      placeholder="R$"
+                      style={{
+                        ...S.input, padding: '6px 8px', fontSize: 12,
+                        borderColor: baixaConfValor ? '#f59e0b88' : C.border,
+                      }} />
+                    <select value={m.turno}
+                      onChange={e => {
+                        const t = e.target.value
+                        atualizarMusico(i, j, 'turno', t)
+                        atualizarMusico(i, j, 'horario', t === 'TD' ? '12:00' : '20:00')
+                      }}
+                      style={{ ...S.input, padding: '6px 4px', fontSize: 12 }}>
+                      <option value="TD">Almoço</option>
+                      <option value="TN">Noite</option>
+                    </select>
+                    <input type="time" value={m.horario}
+                      onChange={e => atualizarMusico(i, j, 'horario', e.target.value)}
+                      style={{ ...S.input, padding: '6px 4px', fontSize: 12 }} />
+                    <select value={m.pessoa_id || ''}
+                      onChange={e => atualizarMusico(i, j, 'pessoa_id', e.target.value)}
+                      style={{ ...S.input, padding: '6px 4px', fontSize: 12 }}>
+                      <option value="">— Avulso —</option>
+                      {pessoas.slice().sort((a, b) => a.nome.localeCompare(b.nome)).map(p => (
+                        <option key={p.id} value={p.id}>{p.nome}</option>
+                      ))}
+                    </select>
+                  </div>
+                )
+              })}
+            </div>
+          ))}
+
+          {linhasComProblema.length > 0 && (
+            <div style={{ fontSize: 11, color: C.danger, marginBottom: 10 }}>
+              ⚠ {linhasComProblema.length} linha(s) com campos faltando.
+            </div>
+          )}
+
+          <div style={{
+            display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+            padding: '10px 0', borderTop: `1px solid ${C.border}`, marginTop: 6,
+          }}>
+            <div style={{ fontSize: 12, color: C.textMuted }}>
+              {totalGeral.qtd} lançamento(s) · Total {fmt(totalGeral.total)}
+            </div>
+            <button onClick={confirmarImportacao} disabled={salvando || linhasComProblema.length > 0}
+              style={{
+                ...S.btn(C.success),
+                opacity: (salvando || linhasComProblema.length > 0) ? 0.5 : 1,
+              }}>
+              {salvando ? 'Salvando…' : '✓ Confirmar e lançar'}
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

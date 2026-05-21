@@ -1,4 +1,25 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
+import { db } from './firebase'
+import { doc, onSnapshot } from 'firebase/firestore'
+
+// Mapeia o doc agenda_musica_atual em um texto compacto que cabe no prompt
+// (sem valores). Ex: "Hoje (sex 22/05): noite com Elvis. Sáb (23/05): noite com Fabinho, Diego Mourão."
+function formatarAgendaMusica(doc) {
+  if (!doc || !Array.isArray(doc.dias) || doc.dias.length === 0) return ''
+  const diasMap = { segunda:'seg', terca:'ter', terça:'ter', quarta:'qua', quinta:'qui',
+    sexta:'sex', sabado:'sáb', sábado:'sáb', domingo:'dom' }
+  const linhas = doc.dias.map(d => {
+    const data = d.data ? d.data.split('-').reverse().slice(0,2).join('/') : ''
+    const dia = diasMap[(d.dia_semana || '').toLowerCase()] || (d.dia_semana || '')
+    const almoco = d.lancamentos.filter(l => l.turno === 'TD').map(l => l.nome)
+    const noite  = d.lancamentos.filter(l => l.turno === 'TN').map(l => l.nome)
+    const partes = []
+    if (almoco.length) partes.push(`almoço com ${almoco.join(', ')}`)
+    if (noite.length)  partes.push(`noite com ${noite.join(', ')}`)
+    return `${dia} ${data}: ${partes.join('; ') || '—'}`
+  })
+  return `AGENDA MUSICAL DA SEMANA: ${linhas.join(' | ')}.`
+}
 
 // ── CONFIG ──────────────────────────────────────────────────────────────────
 const WHATSAPP = '5518991850160'
@@ -289,6 +310,7 @@ export default function AllanaChat() {
   const [pulso, setPulso] = useState(false)
   const [iaBloqueada, setIaBloqueada] = useState(false)
   const [kbOffset, setKbOffset] = useState(0)
+  const [agendaTexto, setAgendaTexto] = useState('')   // resumo da agenda musical p/ a Allana
 
   const assinaturaUsada = useRef(false)
   const handoffsSemClique = useRef(0)
@@ -303,6 +325,18 @@ export default function AllanaChat() {
     el.textContent = CSS
     document.head.appendChild(el)
     return () => { document.head.removeChild(el) }
+  }, [])
+
+  // Listener da agenda musical (sem valores) — atualiza em tempo real
+  useEffect(() => {
+    try {
+      const ref = doc(db, 'configuracoes', 'agenda_musica_atual')
+      const unsub = onSnapshot(ref, snap => {
+        if (snap.exists()) setAgendaTexto(formatarAgendaMusica(snap.data()))
+        else setAgendaTexto('')
+      }, () => setAgendaTexto(''))
+      return () => unsub()
+    } catch (_) { /* db pode não estar pronto em algumas builds */ }
   }, [])
 
   // Micro-pulso após 30s sem interação (anel sutil, sem scale exagerado)
@@ -419,7 +453,7 @@ export default function AllanaChat() {
       const res = await fetch(ENDPOINT, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: texto, history, sessionId: sessionId.current }),
+        body: JSON.stringify({ message: texto, history, sessionId: sessionId.current, agenda: agendaTexto || undefined }),
         signal: ctrl.signal,
       })
       clearTimeout(timer)
