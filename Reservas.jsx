@@ -127,33 +127,58 @@ const fmtTelDisplay = raw => {
 }
 
 // ── CSS ANIMATIONS ───────────────────────────────────────────────────────
+const EASE = {
+  spring: 'cubic-bezier(0.34, 1.32, 0.5, 1)',
+  smooth: 'cubic-bezier(0.32, 0.72, 0, 1)',
+  out:    'cubic-bezier(0.22, 1, 0.36, 1)',
+}
+
 const ANIM_CSS = `
 @keyframes fadeUp {
-  from { opacity:0; transform:translateY(16px) }
+  from { opacity:0; transform:translateY(14px) }
   to   { opacity:1; transform:translateY(0) }
 }
+@keyframes sheetIn {
+  from { opacity:0; transform:translateY(28px) }
+  to   { opacity:1; transform:translateY(0) }
+}
+@keyframes backdropIn {
+  from { opacity:0; backdrop-filter:blur(0) }
+  to   { opacity:1 }
+}
 @keyframes goldGlow {
-  0%,100% { box-shadow: 0 0 0 0 rgba(201,169,110,0.0) }
-  50%      { box-shadow: 0 0 18px 4px rgba(201,169,110,0.18) }
+  0%,100% { box-shadow: 0 0 0 4px rgba(201,169,110,0.06), 0 0 28px rgba(201,169,110,0.14), 0 0 60px rgba(201,169,110,0.06) }
+  50%     { box-shadow: 0 0 0 4px rgba(201,169,110,0.10), 0 0 36px rgba(201,169,110,0.26), 0 0 80px rgba(201,169,110,0.12) }
 }
 @keyframes successPop {
   0%   { opacity:0; transform:scale(0.7) }
   60%  { transform:scale(1.08) }
   100% { opacity:1; transform:scale(1) }
 }
-@keyframes ripple {
-  from { transform:scale(0); opacity:0.5 }
-  to   { transform:scale(2.5); opacity:0 }
-}
 @keyframes shimmerSlide {
   0%   { background-position:-200% 0 }
   100% { background-position:200% 0 }
 }
-@keyframes spin {
-  to { transform:rotate(360deg) }
+@keyframes spin { to { transform:rotate(360deg) } }
+
+.card-entrada { animation: fadeUp 0.4s ${EASE.out} both }
+
+.r-card {
+  transition: transform .3s ${EASE.smooth}, box-shadow .3s ${EASE.smooth}, border-color .25s ${EASE.smooth};
 }
-.card-entrada { animation: fadeUp 0.4s ease both }
-.espaco-card:hover { transform:translateY(-2px); transition:transform 0.2s ease }
+.r-tap { -webkit-tap-highlight-color: transparent; transition: transform .18s ${EASE.spring}, background .22s ${EASE.smooth}, border-color .22s ${EASE.smooth}, box-shadow .25s ${EASE.smooth}, filter .2s ${EASE.smooth}; }
+.r-tap:not(:disabled):active { transform: scale(0.97); }
+.r-tap-strong:not(:disabled):active { transform: scale(0.985); filter: brightness(1.04); }
+
+.r-input { transition: border-color .22s ${EASE.smooth}, box-shadow .22s ${EASE.smooth}, background .22s ${EASE.smooth}; }
+.r-input:focus { outline:none; }
+
+.espaco-card { -webkit-tap-highlight-color: transparent; }
+.espaco-card:hover { transition: transform 0.22s ${EASE.spring} }
+
+@media (prefers-reduced-motion: reduce) {
+  .card-entrada, .r-card, .r-tap, .r-tap-strong, .espaco-card { animation: none !important; transition: none !important; }
+}
 `
 
 // ── CALENDÁRIO ───────────────────────────────────────────────────────────
@@ -187,11 +212,18 @@ function Calendario({ selectedDate, onSelect, onClose }) {
   const nextM = () => setMes(m => new Date(m.getFullYear(), m.getMonth()+1, 1))
 
   return (
-    <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.8)', zIndex:200,
-      display:'flex', alignItems:'flex-end', backdropFilter:'blur(8px)' }}
+    <div style={{ position:'fixed', inset:0,
+      background:'radial-gradient(120% 80% at 50% 100%, rgba(0,0,0,0.85), rgba(0,0,0,0.55))',
+      zIndex:200, display:'flex', alignItems:'flex-end',
+      WebkitBackdropFilter:'blur(10px) saturate(130%)', backdropFilter:'blur(10px) saturate(130%)',
+      animation:`backdropIn .28s ${EASE.smooth} both` }}
       onClick={e => e.target===e.currentTarget && onClose()}>
-      <div style={{ background:C.bgCard2, borderRadius:'24px 24px 0 0', padding:'20px 20px 40px',
-        width:'100%', maxWidth:480, margin:'0 auto', border:`1px solid ${C.border}`, borderBottom:'none' }}>
+      <div style={{ background:`linear-gradient(180deg, ${C.bgCard2}, ${C.bgCard})`,
+        borderRadius:'26px 26px 0 0', padding:'20px 22px 40px',
+        width:'100%', maxWidth:480, margin:'0 auto',
+        border:`1px solid ${C.border}`, borderBottom:'none',
+        boxShadow:'0 -24px 60px rgba(0,0,0,0.6), 0 1px 0 rgba(255,255,255,0.04) inset',
+        animation:`sheetIn .36s ${EASE.spring} both` }}>
         <div style={{ width:40, height:4, background:C.border, borderRadius:2, margin:'0 auto 20px' }} />
 
         {/* Nav mês */}
@@ -229,15 +261,20 @@ function Calendario({ selectedDate, onSelect, onClose }) {
             const isFer = isFeriado(ds)
             return (
               <button key={ds} onClick={() => !passado && onSelect(ds) && onClose()}
-                disabled={passado}
+                disabled={passado} className={passado?undefined:'r-tap'}
                 style={{ border: isSel ? `1.5px solid ${C.gold}` : `1px solid ${passado?'transparent':C.border}`,
-                  borderRadius:10, padding:'9px 2px',
-                  background: isSel ? C.gold15 : passado ? 'transparent' : isHoje ? C.gold8 : C.bgCard3,
+                  borderRadius:10, padding:'10px 2px',
+                  background: isSel
+                    ? `linear-gradient(135deg, ${C.gold15}, ${C.gold8})`
+                    : passado ? 'transparent' : isHoje ? C.gold8 : C.bgCard3,
                   color: passado ? C.textDim : isSel ? C.goldL : isWE||isFer ? C.gold+'bb' : C.text,
-                  fontSize:13, fontWeight: isSel||isHoje ? 700 : 400,
+                  fontSize:13, fontWeight: isSel||isHoje ? 700 : 500,
                   cursor: passado ? 'default' : 'pointer',
-                  position:'relative', transition:'all 0.15s',
-                  boxShadow: isSel ? `0 0 12px ${C.gold25}` : 'none' }}>
+                  position:'relative',
+                  boxShadow: isSel
+                    ? `0 0 0 4px ${C.gold8}, 0 4px 14px ${C.gold25}, 0 1px 0 rgba(255,255,255,0.05) inset`
+                    : 'none',
+                  WebkitTapHighlightColor:'transparent' }}>
                 {new Date(ds+'T12:00:00').getDate()}
                 {isHoje && !isSel && (
                   <div style={{ position:'absolute', bottom:3, left:'50%', transform:'translateX(-50%)',
@@ -280,12 +317,13 @@ function EspacoCard({ espaco, selecionado, onSelect }) {
         cursor:'pointer', textAlign:'left', position:'relative', overflow:'hidden',
         height:155,
         boxShadow: selecionado
-          ? `0 0 0 2px ${C.gold}, 0 0 28px rgba(201,169,110,0.22), 0 8px 24px rgba(0,0,0,0.55)`
+          ? `0 0 0 2px ${C.gold}, 0 0 32px rgba(201,169,110,0.24), 0 10px 28px rgba(0,0,0,0.6), 0 1px 0 rgba(255,255,255,0.06) inset`
           : hovered
-            ? `0 6px 20px rgba(0,0,0,0.5), 0 0 0 1px ${espaco.accent}44`
-            : '0 2px 10px rgba(0,0,0,0.4)',
-        transform: pressed ? 'scale(0.96)' : hovered ? 'translateY(-3px)' : 'scale(1)',
-        transition:'all 0.22s cubic-bezier(0.34,1.56,0.64,1)',
+            ? `0 8px 24px rgba(0,0,0,0.55), 0 0 0 1px ${espaco.accent}44, 0 1px 0 rgba(255,255,255,0.04) inset`
+            : '0 3px 12px rgba(0,0,0,0.45), 0 1px 0 rgba(255,255,255,0.03) inset',
+        transform: pressed ? 'scale(0.95)' : hovered ? 'translateY(-3px)' : 'scale(1)',
+        transition:`transform 0.28s ${EASE.spring}, box-shadow 0.28s ${EASE.smooth}, border-color 0.22s ${EASE.smooth}`,
+        WebkitTapHighlightColor:'transparent',
       }}>
 
       {/* Emoji decorativo de fundo */}
@@ -352,13 +390,17 @@ function ModalConfirmacao({ dados, onFinalizar, onCancelar, loading }) {
   const espaco = ESPACOS.find(e => e.id===dados.local)
 
   return (
-    <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.88)', zIndex:300,
-      display:'flex', alignItems:'flex-end', backdropFilter:'blur(16px)' }}>
-      <div style={{ background:C.bgCard, borderRadius:'28px 28px 0 0',
+    <div style={{ position:'fixed', inset:0,
+      background:'radial-gradient(120% 80% at 50% 100%, rgba(0,0,0,0.88), rgba(0,0,0,0.6))',
+      zIndex:300, display:'flex', alignItems:'flex-end',
+      WebkitBackdropFilter:'blur(18px) saturate(140%)', backdropFilter:'blur(18px) saturate(140%)',
+      animation:`backdropIn .3s ${EASE.smooth} both` }}>
+      <div style={{ background:`linear-gradient(180deg, ${C.bgCard2} 0%, ${C.bgCard} 100%)`,
+        borderRadius:'28px 28px 0 0',
         padding:'24px 24px 48px', width:'100%', maxWidth:480, margin:'0 auto',
         border:`1px solid ${C.border}`, borderBottom:'none',
-        boxShadow:'0 -20px 60px rgba(0,0,0,0.6)',
-        animation:'fadeUp 0.35s ease' }}>
+        boxShadow:'0 -28px 80px rgba(0,0,0,0.7), 0 -2px 0 rgba(201,169,110,0.10), 0 1px 0 rgba(255,255,255,0.04) inset',
+        animation:`sheetIn 0.42s ${EASE.spring} both` }}>
 
         <div style={{ width:40, height:4, background:C.border, borderRadius:2, margin:'0 auto 24px' }} />
 
@@ -374,8 +416,10 @@ function ModalConfirmacao({ dados, onFinalizar, onCancelar, loading }) {
         </div>
 
         {/* Resumo da reserva */}
-        <div style={{ background:C.bgCard2, border:`1px solid ${C.border}`, borderRadius:16,
-          padding:'14px 16px', marginBottom:16 }}>
+        <div style={{ background:`linear-gradient(180deg, ${C.bgCard2}, ${C.bgCard})`,
+          border:`1px solid ${C.border}`, borderRadius:16,
+          padding:'14px 16px', marginBottom:16,
+          boxShadow:'0 4px 14px rgba(0,0,0,0.35), 0 1px 0 rgba(255,255,255,0.03) inset' }}>
           {[
             ['👤 Nome', dados.nome],
             ['📱 Telefone', fmtTelWhatsApp(dados.telefone)],
@@ -426,16 +470,16 @@ function ModalConfirmacao({ dados, onFinalizar, onCancelar, loading }) {
 
         {/* Botão finalizar */}
         <button onClick={() => aceite && !loading && onFinalizar()} disabled={!aceite||loading}
+          className="r-tap-strong"
           style={{ width:'100%', padding:'18px',
             background: aceite
               ? `linear-gradient(135deg, ${C.goldXD} 0%, ${C.goldD} 40%, ${C.gold} 100%)`
               : C.bgCard3,
             border:`1px solid ${aceite?C.gold:C.border}`, borderRadius:16,
-            fontSize:16, fontWeight:800, letterSpacing:'-0.01em',
+            fontSize:16, fontWeight:800, letterSpacing:'-0.015em',
             color: aceite ? '#050301' : C.textDim,
             cursor: aceite&&!loading ? 'pointer' : 'default',
-            transition:'all 0.3s',
-            boxShadow: aceite ? `0 4px 24px ${C.gold25}` : 'none' }}>
+            boxShadow: aceite ? `0 8px 28px ${C.gold25}, 0 1px 0 rgba(255,255,255,0.22) inset` : 'none' }}>
           {loading
             ? <span style={{ display:'flex', alignItems:'center', justifyContent:'center', gap:10 }}>
                 <span style={{ width:18, height:18, border:`2px solid rgba(5,3,1,0.3)`,
@@ -514,13 +558,15 @@ function Input({ value, onChange, placeholder, type='text', inputMode, required 
   return (
     <input value={value} onChange={onChange} placeholder={placeholder}
       type={type} inputMode={inputMode}
+      className="r-input"
       onFocus={()=>setFocused(true)} onBlur={()=>setFocused(false)}
       style={{ width:'100%', padding:'16px 18px',
         border:`1.5px solid ${focused?(required&&!value?C.danger:C.gold):C.border}`,
-        borderRadius:14, background:C.bgCard3, color:C.text,
+        borderRadius:14,
+        background: focused ? C.bgCard4 : C.bgCard3,
+        color:C.text, letterSpacing:'-0.005em',
         fontSize:16, fontFamily:'inherit', boxSizing:'border-box', outline:'none',
-        transition:'border-color 0.2s, box-shadow 0.2s',
-        boxShadow: focused ? `0 0 0 3px ${C.gold8}` : 'none',
+        boxShadow: focused ? `0 0 0 4px ${C.gold8}, 0 1px 0 rgba(255,255,255,0.03) inset` : '0 1px 0 rgba(255,255,255,0.02) inset',
         caretColor:C.gold }} />
   )
 }
@@ -694,10 +740,11 @@ ${obs.trim()||'Nenhuma'}`
   }
 
   const sectionCard = {
-    background:C.bgCard, border:`1px solid ${C.border}`, borderRadius:20,
+    background:`linear-gradient(180deg, ${C.bgCard} 0%, #0b0805 100%)`,
+    border:`1px solid ${C.border}`, borderRadius:20,
     padding:'22px 20px', marginBottom:14,
-    boxShadow:'0 4px 20px rgba(0,0,0,0.4)',
-    animation:'fadeUp 0.4s ease both',
+    boxShadow:'0 1px 0 rgba(255,255,255,0.025) inset, 0 6px 22px rgba(0,0,0,0.5), 0 1px 3px rgba(0,0,0,0.4)',
+    animation:`fadeUp 0.45s ${EASE.out} both`,
   }
 
   return (
@@ -730,12 +777,17 @@ ${obs.trim()||'Nenhuma'}`
             </div>
           </div>
 
-          <h1 style={{ fontSize:28, fontWeight:900, color:C.gold, margin:'0 0 8px',
-            letterSpacing:'-0.03em', lineHeight:1.1 }}>
+          <div style={{ fontSize:9, fontWeight:800, color:C.goldD, letterSpacing:'0.32em',
+            textTransform:'uppercase', marginBottom:10 }}>
+            Araçá Grill
+          </div>
+          <h1 style={{ fontSize:30, fontWeight:900, color:C.gold, margin:'0 0 8px',
+            letterSpacing:'-0.035em', lineHeight:1.05,
+            textShadow:'0 2px 24px rgba(201,169,110,0.18)' }}>
             Faça sua reserva
           </h1>
           <p style={{ fontSize:13, color:C.textMuted, margin:0, fontStyle:'italic',
-            letterSpacing:'0.03em' }}>
+            letterSpacing:'0.025em' }}>
             Reserve seu momento conosco
           </p>
 
@@ -832,15 +884,17 @@ ${obs.trim()||'Nenhuma'}`
             <span style={{ fontSize:9, fontWeight:800, color:C.goldD, letterSpacing:'0.15em',
               textTransform:'uppercase' }}>Data da reserva</span>
           </div>
-          <button onClick={()=>setMostraCalendario(true)}
+          <button onClick={()=>setMostraCalendario(true)} className="r-tap"
             style={{ width:'100%', padding:'16px 20px',
               border:`1.5px solid ${dataSel?C.gold:C.border}`, borderRadius:14,
               background: dataSel ? C.gold8 : C.bgCard3,
               color: dataSel ? C.gold : C.textMuted, fontSize:15, fontWeight:dataSel?600:400,
+              letterSpacing:'-0.005em',
               cursor:'pointer', textAlign:'left', fontFamily:'inherit',
               display:'flex', justifyContent:'space-between', alignItems:'center',
-              transition:'all 0.2s',
-              boxShadow: dataSel ? `0 0 0 3px ${C.gold8}` : 'none' }}>
+              boxShadow: dataSel
+                ? `0 0 0 4px ${C.gold8}, 0 4px 16px rgba(0,0,0,0.4), 0 1px 0 rgba(255,255,255,0.04) inset`
+                : '0 1px 0 rgba(255,255,255,0.02) inset' }}>
             <span>{dataSel ? fmtDataExtenso(dataSel) : 'Escolher data'}</span>
             <span style={{ color:C.goldD, fontSize:18 }}>📆</span>
           </button>
@@ -862,12 +916,14 @@ ${obs.trim()||'Nenhuma'}`
                 disabled:false },
             ].map(p => (
               <button key={p.id} onClick={()=>!p.disabled&&setPeriodo(p.id)}
-                disabled={p.disabled}
+                disabled={p.disabled} className="r-tap"
                 style={{ padding:'18px 12px', border:`1.5px solid ${periodo===p.id?C.gold:p.disabled?C.borderSub:C.border}`,
                   borderRadius:16, background: periodo===p.id ? C.gold15 : p.disabled ? C.bgCard2 : C.bgCard3,
                   cursor: p.disabled ? 'not-allowed' : 'pointer', textAlign:'center',
-                  opacity: p.disabled ? 0.4 : 1, transition:'all 0.2s',
-                  boxShadow: periodo===p.id ? `0 0 20px ${C.gold15}` : 'none',
+                  opacity: p.disabled ? 0.4 : 1,
+                  boxShadow: periodo===p.id
+                    ? `0 0 0 4px ${C.gold8}, 0 6px 20px ${C.gold15}, 0 1px 0 rgba(255,255,255,0.04) inset`
+                    : '0 1px 0 rgba(255,255,255,0.02) inset',
                   fontFamily:'inherit' }}>
                 <div style={{ fontSize:26, marginBottom:6,
                   filter:periodo===p.id?'drop-shadow(0 0 8px rgba(201,169,110,0.6))':'none',
@@ -904,15 +960,15 @@ ${obs.trim()||'Nenhuma'}`
             ) : (
               <div style={{ display:'flex', flexWrap:'wrap', gap:8 }}>
                 {horarios.map(h => (
-                  <button key={h} onClick={()=>setHorario(h)}
+                  <button key={h} onClick={()=>setHorario(h)} className="r-tap"
                     style={{ padding:'11px 18px', border:`1.5px solid ${horario===h?C.gold:C.border}`,
                       borderRadius:12, background: horario===h
                         ? `linear-gradient(135deg,${C.goldD},${C.gold})`
                         : C.bgCard3,
                       color: horario===h ? '#0a0806' : C.textMuted,
                       fontSize:14, fontWeight:horario===h?800:500, cursor:'pointer',
-                      fontFamily:'inherit', transition:'all 0.15s',
-                      boxShadow: horario===h ? `0 0 14px ${C.gold25}` : 'none' }}>
+                      fontFamily:'inherit', letterSpacing:'-0.005em',
+                      boxShadow: horario===h ? `0 4px 16px ${C.gold25}, 0 1px 0 rgba(255,255,255,0.18) inset` : 'none' }}>
                     {h}
                   </button>
                 ))}
@@ -969,17 +1025,19 @@ ${obs.trim()||'Nenhuma'}`
 
         {/* ── 8. BOTÃO CONFIRMAR ─────────────────────────────── */}
         <button onClick={()=>podeEnviar&&setMostraModal(true)} disabled={!podeEnviar}
+          className="r-tap-strong"
           style={{ width:'100%', padding:'20px',
             background: podeEnviar
               ? `linear-gradient(135deg, ${C.goldXD} 0%, ${C.goldD} 35%, ${C.gold} 70%, ${C.goldL} 100%)`
               : C.bgCard2,
             border:`1px solid ${podeEnviar?C.gold:C.border}`, borderRadius:18,
-            fontSize:17, fontWeight:900, letterSpacing:'-0.01em',
+            fontSize:17, fontWeight:900, letterSpacing:'-0.015em',
             color: podeEnviar ? '#030201' : C.textDim,
             cursor: podeEnviar ? 'pointer' : 'not-allowed',
             fontFamily:'inherit', marginBottom:28,
-            boxShadow: podeEnviar ? `0 8px 32px ${C.gold25}, 0 2px 8px rgba(0,0,0,0.4)` : 'none',
-            transition:'all 0.3s' }}>
+            boxShadow: podeEnviar
+              ? `0 10px 36px ${C.gold25}, 0 2px 8px rgba(0,0,0,0.4), 0 1px 0 rgba(255,255,255,0.22) inset`
+              : 'none' }}>
           {podeEnviar ? '✓ Confirmar reserva' : 'Preencha todos os campos'}
         </button>
 
