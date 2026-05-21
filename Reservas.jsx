@@ -1,9 +1,9 @@
 import { useState, useEffect, useMemo, useRef } from 'react'
 import { db } from './firebase'
-import { collection, addDoc, doc, getDoc } from 'firebase/firestore'
+import { collection, addDoc } from 'firebase/firestore'
 
-// Número do WhatsApp padrão (carregado do Firebase se disponível)
-const WHATSAPP_PADRAO = '5518996530959'
+// Número fixo para encaminhamento das reservas
+const WHATSAPP_RESERVAS = '5518991850160'
 
 // ── CORES ─────────────────────────────────────────────────────────────────
 const C = {
@@ -592,7 +592,7 @@ export default function PaginaReservas() {
   const [mostraModal, setMostraModal] = useState(false)
   const [loading, setLoading]     = useState(false)
   const [sucesso, setSucesso]     = useState(false)
-  const [whatsapp, setWhatsapp]   = useState(WHATSAPP_PADRAO)
+  const whatsapp = WHATSAPP_RESERVAS
   const [grandeGrupoOk, setGrandeGrupoOk] = useState(false)
   const horarioRef = useRef(null)
 
@@ -604,13 +604,6 @@ export default function PaginaReservas() {
     el.textContent = ANIM_CSS
     document.head.appendChild(el)
     return () => document.head.removeChild(el)
-  }, [])
-
-  // Carrega WhatsApp do Firebase config
-  useEffect(() => {
-    getDoc(doc(db, 'configuracoes', 'geral'))
-      .then(snap => { if (snap.exists()) setWhatsapp(snap.data().whatsapp_pix||WHATSAPP_PADRAO) })
-      .catch(() => {})
   }, [])
 
   // Auto-seleciona jantar quando data escolhida não tem almoço
