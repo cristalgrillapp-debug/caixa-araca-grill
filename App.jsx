@@ -2609,6 +2609,70 @@ function TabRelatoriosCentral({ store, today, extCat, setExtCat }) {
 
 // ─── ABA RESERVAS ────────────────────────────────────────────────────────────
 
+const LABEL_LOCAL = {
+  kids:          'Espaço Kids',
+  palco:         'Próx. ao Palco',
+  churrasqueira: 'Churrasqueira + TV',
+  meio:          'Meio do Salão',
+  banheiros:     'Fundo do Salão',
+  qualquer:      'Sem Preferências',
+}
+
+function imprimirReserva(r) {
+  const espaco  = LABEL_LOCAL[r.local] || r.local || '—'
+  const periodo = r.periodo === 'almoco' ? 'Almoço' : 'Jantar'
+  const data    = r.data ? r.data.split('-').reverse().join('/') : '—'
+  const agora   = new Date().toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'})
+
+  const html = `<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>Reserva</title>
+<style>
+  @page { size: 80mm auto; margin: 0; }
+  *     { box-sizing: border-box; margin: 0; padding: 0; }
+  body  { font-family: 'Courier New', monospace; font-size: 10.5px; color: #000;
+          width: 72mm; padding: 5mm 4mm; }
+  h1    { font-size: 15px; text-align: center; letter-spacing: 1.5px; margin-bottom: 1px; }
+  .sub  { font-size: 8.5px; text-align: center; margin-bottom: 5px; }
+  .titulo { font-size: 12px; font-weight: bold; text-align: center;
+            letter-spacing: 3px; margin: 4px 0; }
+  .hr   { border: none; border-top: 1px dashed #000; margin: 3px 0; }
+  .row  { display: flex; justify-content: space-between; padding: 2px 0; line-height: 1.3; }
+  .lbl  { color: #444; white-space: nowrap; padding-right: 6px; }
+  .val  { font-weight: bold; text-align: right; }
+  .obs  { border: 1px dashed #555; padding: 4px 6px; margin-top: 5px;
+          font-size: 9.5px; line-height: 1.5; }
+  .obs-lbl { font-weight: bold; font-size: 9px; text-transform: uppercase;
+             letter-spacing: 1px; margin-bottom: 2px; }
+  .ts   { font-size: 8px; text-align: center; color: #666; margin-top: 5px; }
+</style></head>
+<body>
+<h1>ARAÇÁ GRILL</h1>
+<div class="sub">Restaurante &amp; Choperia</div>
+<div class="hr"></div>
+<div class="titulo">RESERVA</div>
+<div class="hr"></div>
+<div class="row"><span class="lbl">Nome</span><span class="val">${r.nome||'—'}</span></div>
+<div class="row"><span class="lbl">Telefone</span><span class="val">${r.telefone||'—'}</span></div>
+<div class="hr"></div>
+<div class="row"><span class="lbl">Data</span><span class="val">${data}</span></div>
+<div class="row"><span class="lbl">Período</span><span class="val">${periodo}</span></div>
+<div class="row"><span class="lbl">Horário</span><span class="val">${r.horario||'—'}</span></div>
+<div class="row"><span class="lbl">Pessoas</span><span class="val">${r.pessoas||'—'}</span></div>
+<div class="hr"></div>
+<div class="row"><span class="lbl">Local</span><span class="val">${espaco}</span></div>
+${r.obs ? `<div class="obs"><div class="obs-lbl">Observações</div>${r.obs}</div>` : ''}
+<div class="hr"></div>
+<div class="ts">Impresso: ${agora}</div>
+</body></html>`
+
+  const win = window.open('', '_blank', 'width=440,height=620,left=200,top=80')
+  if (!win) return
+  win.document.write(html)
+  win.document.close()
+  win.focus()
+  setTimeout(() => win.print(), 500)
+}
+
 function TabReservas({ store, today }) {
   const { reservas, reservasStatus, confirmarVisualizacaoReserva, confirmarReserva, usuario } = store
 
@@ -2777,13 +2841,42 @@ function TabReservas({ store, today }) {
                   {reserva.data.split('-').reverse().join('/')}
                 </span>
               </div>
+              {reserva.periodo&&(
+                <div style={{display:'flex',alignItems:'center',gap:4,background:C.bgCard2,
+                  borderRadius:8,padding:'4px 10px'}}>
+                  <span style={{fontSize:12}}>{reserva.periodo==='almoco'?'☀️':'🌙'}</span>
+                  <span style={{fontSize:12,fontWeight:600,color:C.text}}>
+                    {reserva.periodo==='almoco'?'Almoço':'Jantar'}
+                  </span>
+                </div>
+              )}
             </div>
+
+            {/* Local escolhido */}
+            {reserva.local&&(
+              <div style={{display:'flex',alignItems:'center',gap:6,background:C.bgCard2,
+                border:`1px solid ${C.border}`,borderRadius:8,padding:'7px 12px',marginBottom:10}}>
+                <span style={{fontSize:13}}>📍</span>
+                <div>
+                  <div style={{fontSize:9,fontWeight:700,color:C.textDim,textTransform:'uppercase',
+                    letterSpacing:'0.06em',marginBottom:1}}>Local desejado</div>
+                  <div style={{fontSize:12,fontWeight:700,color:C.text}}>
+                    {LABEL_LOCAL[reserva.local]||reserva.local}
+                  </div>
+                </div>
+              </div>
+            )}
 
             {/* Observações */}
             {reserva.obs&&(
               <div style={{fontSize:12,color:C.textMuted,background:C.bgCard2,
-                borderRadius:8,padding:'8px 12px',marginBottom:10,lineHeight:1.5}}>
-                📝 {reserva.obs}
+                borderRadius:8,padding:'8px 12px',marginBottom:10,lineHeight:1.5,
+                border:`1px solid ${C.border}`}}>
+                <span style={{fontSize:10,fontWeight:700,color:C.textDim,
+                  textTransform:'uppercase',letterSpacing:'0.05em',display:'block',marginBottom:3}}>
+                  Observações
+                </span>
+                {reserva.obs}
               </div>
             )}
 
@@ -2810,6 +2903,18 @@ function TabReservas({ store, today }) {
                   .toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'})}
               </div>
             )}
+
+            {/* Botão imprimir */}
+            <button onClick={()=>imprimirReserva(reserva)}
+              style={{width:'100%',marginTop:8,padding:'8px',background:'transparent',
+                border:`1px dashed ${C.border}`,borderRadius:8,color:C.textDim,
+                fontSize:11,cursor:'pointer',fontFamily:'inherit',
+                display:'flex',alignItems:'center',justifyContent:'center',gap:6,
+                transition:'all 0.15s'}}
+              onMouseEnter={e=>{e.currentTarget.style.borderColor=C.textMuted;e.currentTarget.style.color=C.text}}
+              onMouseLeave={e=>{e.currentTarget.style.borderColor=C.border;e.currentTarget.style.color=C.textDim}}>
+              🖨️ <span>Imprimir comprovante</span>
+            </button>
           </div>
         )
       })}
