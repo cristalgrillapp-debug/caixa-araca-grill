@@ -501,7 +501,10 @@ function ModalConfirmacao({ dados, onFinalizar, onCancelar, loading }) {
 }
 
 // ── TELA SUCESSO ──────────────────────────────────────────────────────────
-function TelaSuccesso({ onNova }) {
+function TelaSuccesso({ onNova, waUrl, popupBloqueado }) {
+  // Em iOS, mesmo abrindo o popup no clique, alguns navegadores bloqueiam
+  // se o usuário marcou "bloquear popups" — exibimos um botão de fallback
+  // que usa um <a target="_blank"> (clique do usuário, sempre permitido).
   return (
     <div style={{ minHeight:'100vh', background:C.bg, display:'flex', flexDirection:'column',
       alignItems:'center', justifyContent:'center', padding:32, textAlign:'center',
@@ -524,10 +527,27 @@ function TelaSuccesso({ onNova }) {
         animation:'fadeUp 0.4s ease 0.3s both' }}>
         Sua reserva foi enviada com sucesso.
       </p>
-      <p style={{ fontSize:13, color:C.textDim, lineHeight:1.6, maxWidth:280, margin:'0 0 36px',
+      <p style={{ fontSize:13, color:C.textDim, lineHeight:1.6, maxWidth:280, margin:'0 0 28px',
         animation:'fadeUp 0.4s ease 0.4s both' }}>
-        Você está sendo redirecionado ao WhatsApp do restaurante para confirmação da reserva.
+        {popupBloqueado
+          ? 'Toque no botão abaixo para enviar sua mensagem no WhatsApp.'
+          : 'Você está sendo redirecionado ao WhatsApp do restaurante para confirmação da reserva.'}
       </p>
+
+      {waUrl && (
+        <a href={waUrl} target="_blank" rel="noopener noreferrer"
+          style={{
+            display:'inline-flex', alignItems:'center', gap:8,
+            padding:'15px 28px', borderRadius:14,
+            background:'linear-gradient(135deg,#25D366,#1ebe57)',
+            color:'#fff', fontSize:15, fontWeight:800, textDecoration:'none',
+            boxShadow:'0 6px 20px rgba(37,211,102,0.35)',
+            animation:'fadeUp 0.4s ease 0.45s both', marginBottom:14,
+          }}>
+          💬 Abrir WhatsApp
+        </a>
+      )}
+
       <button onClick={onNova}
         style={{ padding:'14px 32px', border:`1px solid ${C.border}`, borderRadius:14,
           background:C.bgCard2, color:C.textMuted, fontSize:14, cursor:'pointer',
@@ -639,6 +659,8 @@ export default function PaginaReservas() {
   const [mostraModal, setMostraModal] = useState(false)
   const [loading, setLoading]     = useState(false)
   const [sucesso, setSucesso]     = useState(false)
+  const [ultimaWaUrl, setUltimaWaUrl] = useState('')
+  const [popupBloqueado, setPopupBloqueado] = useState(false)
   const whatsapp = WHATSAPP_RESERVAS
   const [grandeGrupoOk, setGrandeGrupoOk] = useState(false)
   const horarioRef = useRef(null)
@@ -674,18 +696,11 @@ export default function PaginaReservas() {
   const handleData = ds => { setDataSel(ds); setMostraCalendario(false) }
 
   const handleConfirmar = async () => {
-    setLoading(true)
-    const reserva = {
-      nome: nome.trim(), telefone: telefone.trim(), pessoas: String(pessoas),
-      data: dataSel, periodo, horario,
-      observacoes: obs.trim() || '', local,
-      status: 'Pendente', criado_em: new Date().toISOString(),
-    }
-
-    try {
-      await addDoc(collection(db, 'reservas_clientes'), reserva)
-    } catch(e) { console.warn('Firebase:', e) }
-
+    // iOS Safari bloqueia window.open chamado depois de await / setTimeout
+    // (perde o "gesto do usuário"). Construímos a URL SINCRONAMENTE e
+    // abrimos imediatamente, antes de qualquer await. O save no Firestore
+    // segue em paralelo. Se o popup for bloqueado, a TelaSuccesso oferece
+    // um botão manual de fallback.
     const espaco = ESPACOS.find(e=>e.id===local)?.titulo || local
     const periodoLabel = periodo==='almoco' ? 'Almoço' : 'Jantar'
     const msg = `#PRE-RESERVA-ARACA
@@ -717,18 +732,41 @@ ${espaco}
 Observações:
 ${obs.trim()||'Nenhuma'}`
 
+    const waUrl = `https://wa.me/${whatsapp}?text=${encodeURIComponent(msg)}`
+
+    // 1) Abre a aba do WhatsApp IMEDIATAMENTE (gesto do usuário ainda vivo).
+    //    Em iPhone, isso é a única forma confiável: chamar window.open ainda
+    //    dentro do click, sem aguardar nada. Se for bloqueado, popup === null.
+    let popup = null
+    try { popup = window.open(waUrl, '_blank') } catch (_) {}
+
+    // 2) Marca loading e dispara o save em paralelo (sem travar a UI).
+    setLoading(true)
+    const reserva = {
+      nome: nome.trim(), telefone: telefone.trim(), pessoas: String(pessoas),
+      data: dataSel, periodo, horario,
+      observacoes: obs.trim() || '', local,
+      status: 'Pendente', criado_em: new Date().toISOString(),
+    }
+    addDoc(collection(db, 'reservas_clientes'), reserva)
+      .catch(e => console.warn('Firebase:', e))
+
+    // 3) Avança para a tela de sucesso já com a URL pronta para o fallback.
     setLoading(false)
     setMostraModal(false)
+    setUltimaWaUrl(waUrl)
+    setPopupBloqueado(!popup)
     setSucesso(true)
-    setTimeout(() => {
-      window.open(`https://wa.me/${whatsapp}?text=${encodeURIComponent(msg)}`, '_blank')
-    }, 3000)
   }
 
-  if (sucesso) return <TelaSuccesso onNova={()=>{
+  if (sucesso) return <TelaSuccesso
+    waUrl={ultimaWaUrl}
+    popupBloqueado={popupBloqueado}
+    onNova={()=>{
     setSucesso(false); setNome(''); setTelefone(''); setPessoas(2)
     setDataSel(''); setPeriodo(''); setHorario(''); setObs(''); setLocal('')
     setGrandeGrupoOk(false)
+    setUltimaWaUrl(''); setPopupBloqueado(false)
   }} />
 
   const inputBase = {
